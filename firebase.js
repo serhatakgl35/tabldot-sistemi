@@ -73,6 +73,8 @@ let lastMaps = null;
 let realtimeUnsubs = [];
 let realtimeTimer = null;
 let accessProfile = null;
+let lastAccessSignature = '';
+let lastPermissionWarnings = [];
 
 function clean(value) {
   if (Array.isArray(value)) return value.map(clean);
@@ -235,8 +237,43 @@ async function changePassword(newPassword) {
   await updatePassword(auth.currentUser, newPassword);
 }
 
+function accessSignature(profile) {
+  if (!profile) return '';
+  const roles = Array.isArray(profile.roles) ? [...profile.roles].sort() : [];
+  const extras = Array.isArray(profile.extraPermissions) ? [...profile.extraPermissions].sort() : [];
+  return JSON.stringify({
+    uid: profile.uid || '',
+    role: profile.role || '',
+    roles,
+    extras,
+    approved: !!profile.approved,
+    rejected: !!profile.rejected,
+    id: profile.id ?? null
+  });
+}
+
 function setAccessProfile(profile) {
-  accessProfile = profile ? { ...profile } : null;
+  const next = profile ? { ...profile } : null;
+  const nextSignature = accessSignature(next);
+  const changed = nextSignature !== lastAccessSignature;
+  accessProfile = next;
+  lastAccessSignature = nextSignature;
+  if (changed) lastMaps = null;
+  return changed;
+}
+
+async function refreshAccessProfile() {
+  const uid = auth.currentUser?.uid;
+  if (!uid) throw new Error('Oturum bulunamadı.');
+  const profile = await getUserProfile(uid);
+  if (!profile) throw new Error('Kullanıcı profili bulunamadı.');
+  setAccessProfile(profile);
+  return profile;
+}
+
+function isPermissionDenied(error) {
+  const code = String(error?.code || '');
+  return code === 'permission-denied' || code === 'firestore/permission-denied';
 }
 
 function profileRoles(profile = accessProfile) {
@@ -318,6 +355,17 @@ async function readByPlan(name, plan) {
     return snap.exists() ? [{ ...snap.data(), _docId: snap.id }] : [];
   }
   return collectionData(name, plan.constraints || []);
+}
+
+async function safeReadByPlan(label, name, plan) {
+  try {
+    return await readByPlan(name, plan);
+  } catch (error) {
+    if (!isPermissionDenied(error)) throw error;
+    console.warn(`[PBYS] ${label} koleksiyonu mevcut yetkiyle okunamadı; bu bölüm boş bırakıldı.`, error);
+    lastPermissionWarnings.push(label);
+    return [];
+  }
 }
 
 function emptyState(settings = DEFAULT_SETTINGS) {
@@ -414,28 +462,41 @@ async function currentCloudMaps() {
 }
 
 async function loadState(updateSnapshot = true) {
+  // Yetki değişiklikleri Firestore Rules tarafında anında geçerlidir. Her veri
+  // yüklemesinden önce kendi profilimizi tekrar okuyarak eski rol/yetki planıyla
+  // sorgu göndermeyi engelliyoruz.
+  await refreshAccessProfile();
   const plan = readPlan();
-  const settingsSnap = await getDoc(doc(firestore, 'settings', 'app'));
-  const settings = settingsSnap.exists()
-    ? settingsSnap.data()
-    : (accessIsAdmin() ? await ensureSettings() : DEFAULT_SETTINGS);
-  const state = emptyState(settings);
+  lastPermissionWarnings = [];
 
+  let settings = DEFAULT_SETTINGS;
+  try {
+    const settingsSnap = await getDoc(doc(firestore, 'settings', 'app'));
+    settings = settingsSnap.exists()
+      ? settingsSnap.data()
+      : (accessIsAdmin() ? await ensureSettings() : DEFAULT_SETTINGS);
+  } catch (error) {
+    if (!isPermissionDenied(error)) throw error;
+    console.warn('[PBYS] settings/app mevcut yetkiyle okunamadı; varsayılan ayarlar kullanılıyor.', error);
+    lastPermissionWarnings.push('settings/app');
+  }
+
+  const state = emptyState(settings);
   const [users, meals, expenses, payments, debts, leaves, prefs, plans, laundry, laundryFaults, attendance, audits, activities, menus] = await Promise.all([
-    readByPlan(COLLECTIONS.users, plan.users),
-    readByPlan(COLLECTIONS.mealChoices, plan.mealChoices),
-    readByPlan(COLLECTIONS.expenses, plan.expenses),
-    readByPlan(COLLECTIONS.payments, plan.payments),
-    readByPlan(COLLECTIONS.debts, plan.debts),
-    readByPlan(COLLECTIONS.leaveRequests, plan.leaveRequests),
-    readByPlan(COLLECTIONS.leavePreferences, plan.leavePreferences),
-    readByPlan(COLLECTIONS.leavePlanResults, plan.leavePlanResults),
-    readByPlan(COLLECTIONS.laundry, plan.laundry),
-    readByPlan(COLLECTIONS.laundryFaults, plan.laundryFaults),
-    readByPlan(COLLECTIONS.attendance, plan.attendance),
-    readByPlan(COLLECTIONS.auditLogs, plan.auditLogs),
-    readByPlan(COLLECTIONS.weeklyActivities, plan.weeklyActivities),
-    readByPlan(COLLECTIONS.dailyMenus, plan.dailyMenus)
+    safeReadByPlan('users', COLLECTIONS.users, plan.users),
+    safeReadByPlan('mealChoices', COLLECTIONS.mealChoices, plan.mealChoices),
+    safeReadByPlan('mealExpenses', COLLECTIONS.expenses, plan.expenses),
+    safeReadByPlan('payments', COLLECTIONS.payments, plan.payments),
+    safeReadByPlan('debts', COLLECTIONS.debts, plan.debts),
+    safeReadByPlan('leaveRequests', COLLECTIONS.leaveRequests, plan.leaveRequests),
+    safeReadByPlan('leavePreferences', COLLECTIONS.leavePreferences, plan.leavePreferences),
+    safeReadByPlan('leavePlanResults', COLLECTIONS.leavePlanResults, plan.leavePlanResults),
+    safeReadByPlan('laundryReservations', COLLECTIONS.laundry, plan.laundry),
+    safeReadByPlan('laundryFaults', COLLECTIONS.laundryFaults, plan.laundryFaults),
+    safeReadByPlan('attendance', COLLECTIONS.attendance, plan.attendance),
+    safeReadByPlan('auditLogs', COLLECTIONS.auditLogs, plan.auditLogs),
+    safeReadByPlan('weeklyActivities', COLLECTIONS.weeklyActivities, plan.weeklyActivities),
+    safeReadByPlan('dailyMenus', COLLECTIONS.dailyMenus, plan.dailyMenus)
   ]);
 
   state.users = users.map(x => ({ ...x, uid: x.uid || x._docId })).map(({ _docId, ...x }) => x);
@@ -458,6 +519,7 @@ async function loadState(updateSnapshot = true) {
   state.auditLogs = strip(audits).sort((a, b) => String(b.at || '').localeCompare(String(a.at || ''))).slice(0, 500);
   state.weeklyActivities = strip(activities);
   state.dailyMenus = Object.fromEntries(menus.map(({ _docId, date, ...menu }) => [date || _docId, menu]));
+  state.permissionWarnings = [...lastPermissionWarnings];
 
   if (updateSnapshot) lastMaps = stateToMaps(state);
   return state;
@@ -500,20 +562,68 @@ function realtimeRefs() {
 
 function startRealtime(callback) {
   stopRealtime();
+  let restarting = false;
+
+  const reload = async () => {
+    try {
+      const state = await loadState(true);
+      callback(state);
+    } catch (error) {
+      console.error('Realtime refresh error', error);
+    }
+  };
+
+  const restartForPermissions = async () => {
+    if (restarting) return;
+    restarting = true;
+    try {
+      const before = lastAccessSignature;
+      await refreshAccessProfile();
+      // Eski listener'lar önceki rolün sorgularını taşımış olabilir. Profil
+      // değişmiş olsun veya olmasın permission-denied sonrası planı yeniden kur.
+      stopRealtime();
+      await reload();
+      startRealtime(callback);
+      if (before !== lastAccessSignature) console.info('[PBYS] Yetki değişikliği algılandı; Firestore dinleyicileri yenilendi.');
+    } catch (error) {
+      console.error('Yetki planı yenilenemedi', error);
+    } finally {
+      restarting = false;
+    }
+  };
+
   const schedule = snap => {
     if (snap?.metadata?.hasPendingWrites) return;
     clearTimeout(realtimeTimer);
-    realtimeTimer = setTimeout(async () => {
-      try {
-        const state = await loadState(true);
-        callback(state);
-      } catch (error) {
-        console.error('Realtime refresh error', error);
-      }
-    }, 350);
+    realtimeTimer = setTimeout(reload, 350);
   };
+
+  // Kendi kullanıcı belgemizi ayrıca dinliyoruz. Admin rol/yetkiyi değiştirdiği
+  // anda yeni profil okunur ve listener planı otomatik yeniden kurulur.
+  const uid = auth.currentUser?.uid;
+  if (uid) {
+    const ownRef = doc(firestore, COLLECTIONS.users, uid);
+    realtimeUnsubs.push(onSnapshot(ownRef, async snap => {
+      if (!snap.exists()) return;
+      const nextProfile = { ...snap.data(), uid: snap.id };
+      const changed = setAccessProfile(nextProfile);
+      if (changed) {
+        stopRealtime();
+        await reload();
+        startRealtime(callback);
+      }
+    }, error => {
+      console.error('Listener access-profile', error);
+    }));
+  }
+
   realtimeRefs().forEach(({ label, ref }) => {
-    realtimeUnsubs.push(onSnapshot(ref, schedule, error => console.error(`Listener ${label}`, error)));
+    // users ownDoc zaten access-profile ile dinleniyor; çift listener gereksiz.
+    if (label === 'users' && ref?.path === `${COLLECTIONS.users}/${uid}`) return;
+    realtimeUnsubs.push(onSnapshot(ref, schedule, error => {
+      console.error(`Listener ${label}`, error);
+      if (isPermissionDenied(error)) restartForPermissions();
+    }));
   });
   return stopRealtime;
 }
@@ -528,6 +638,7 @@ window.FirebaseBridge = {
   hasAnyAdmin,
   getUserProfile,
   setAccessProfile,
+  refreshAccessProfile,
   bootstrapAdmin,
   registerPending,
   adminCreateUser,
@@ -539,7 +650,8 @@ window.FirebaseBridge = {
   loadState,
   saveState,
   startRealtime,
-  stopRealtime
+  stopRealtime,
+  permissionWarnings: () => [...lastPermissionWarnings]
 };
 
 window.dispatchEvent(new CustomEvent('firebase-ready'));
