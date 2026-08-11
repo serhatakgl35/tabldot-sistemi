@@ -1,0 +1,31 @@
+PBYS V8.8 - Firestore Rules Kurulumu
+====================================
+
+Bu sürümde uygulama giriş yapılmadan Firestore verisi okumaz.
+Ancak kalıcı güvenlik için firestore.rules dosyasındaki kuralları Firebase Console'a da yayınlamanız gerekir.
+
+UYGULAMA
+1) Firebase Console'a girin.
+2) gencservi projesini açın.
+3) Firestore Database > Rules bölümüne girin.
+4) Mevcut kuralların tamamını seçin.
+5) Bu paketteki firestore.rules dosyasının içeriğini yapıştırın.
+6) Publish / Yayınla düğmesine basın.
+7) Ardından gencservi.com.tr sayfasını yenileyip giriş yapın.
+
+ÖNEMLİ
+- Kuralları yayınlamadan önce mevcut Firestore verilerinizi silmeyin.
+- Authentication kullanıcılarını silmeyin.
+- users koleksiyonundaki mevcut Admin hesabında approved=true, rejected=false ve roles dizisinde admin bulunmalıdır.
+- V8.8'de ilk Admin oluşturma ekranı güvenlik nedeniyle üretim ortamında kapalıdır. Mevcut Admin hesabı kullanılmalıdır.
+
+V8.8 GÜVENLİK DAVRANIŞI
+- Giriş ekranında users/settings dahil hiçbir Firestore koleksiyonu okunmaz.
+- Oturum doğrulandıktan sonra kişinin rol/yetkisine göre gerekli veriler yüklenir.
+- Personel yalnızca kendi borç, ödeme, izin, tercih ve yoklama kayıtlarını okur.
+- Günlük menü ve haftalık faaliyetler tüm onaylı personele okunur.
+- Günlük menü yazma: menu.manage özel yetkisi.
+- Haftalık faaliyet yazma: activity.manage özel yetkisi.
+- Tabldot/finans verileri finance.manage yetkisine göre korunur.
+- İzin yönetimi ve yıllık planlama kendi yetkileriyle korunur.
+- Tarayıcı localStorage içinde Firestore personel verisi kalıcı tutulmaz; çıkışta bellek temizlenir.

@@ -1,0 +1,245 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function myUserPath() {
+      return /databases/$(database)/documents/users/$(request.auth.uid);
+    }
+
+    function hasProfile() {
+      return signedIn() && exists(myUserPath());
+    }
+
+    function me() {
+      return get(myUserPath()).data;
+    }
+
+    function approved() {
+      return hasProfile() && me().approved == true && me().rejected != true;
+    }
+
+    function hasRole(role) {
+      return approved() && (
+        me().role == role ||
+        (me().roles is list && me().roles.hasAny([role]))
+      );
+    }
+
+    function hasExtra(permission) {
+      return approved() && me().extraPermissions is list && me().extraPermissions.hasAny([permission]);
+    }
+
+    function isAdmin() {
+      return hasRole('admin');
+    }
+
+    function myId() {
+      return me().id;
+    }
+
+    function personnelViewer() {
+      return isAdmin() || hasRole('administrative') || hasRole('commander') || hasExtra('personnel.view');
+    }
+
+    function kitchenViewer() {
+      return isAdmin() || hasRole('cook') || hasExtra('kitchen.view');
+    }
+
+    function mealManager() {
+      return isAdmin() || hasRole('tabldot') || hasRole('administrative') || hasExtra('meal.manage');
+    }
+
+    function financeManager() {
+      return isAdmin() || hasRole('tabldot') || hasRole('administrative') || hasExtra('finance.manage');
+    }
+
+    function attendanceViewer() {
+      return isAdmin() || hasRole('administrative') || hasRole('commander') || hasExtra('attendance.view') || hasExtra('attendance.manage');
+    }
+
+    function attendanceManager() {
+      return isAdmin() || hasRole('administrative') || hasExtra('attendance.manage');
+    }
+
+    function leaveViewer() {
+      return isAdmin() || hasRole('administrative') || hasRole('commander') ||
+        hasExtra('leave.view') || hasExtra('leave.manage') || hasExtra('leave.approve') || hasExtra('leave.plan');
+    }
+
+    function leaveManager() {
+      return isAdmin() || hasRole('administrative') || hasExtra('leave.manage');
+    }
+
+    function leaveApprover() {
+      return isAdmin() || hasRole('commander') || hasExtra('leave.approve') || leaveManager();
+    }
+
+    function leavePlanner() {
+      return isAdmin() || hasRole('commander') || hasExtra('leave.plan');
+    }
+
+    function laundryManager() {
+      return isAdmin() || hasExtra('laundry.manage');
+    }
+
+    function activityManager() {
+      return isAdmin() || hasExtra('activity.manage');
+    }
+
+    function menuManager() {
+      return isAdmin() || hasExtra('menu.manage');
+    }
+
+    function operationalUserViewer() {
+      return personnelViewer() || kitchenViewer() || mealManager() || financeManager() || attendanceViewer() || leaveViewer() || laundryManager();
+    }
+
+    function isOwnNumericUserId(data) {
+      return approved() && data.userId == myId();
+    }
+
+    match /users/{uid} {
+      allow get: if signedIn() && request.auth.uid == uid
+        || (approved() && operationalUserViewer());
+
+      allow list: if approved() && (
+        personnelViewer() || leaveViewer() || attendanceViewer() ||
+        ((kitchenViewer() || mealManager() || financeManager() || laundryManager()) && resource.data.approved == true)
+      );
+
+      allow create: if isAdmin() || (
+        signedIn() && request.auth.uid == uid &&
+        request.resource.data.approved == false &&
+        request.resource.data.rejected == false &&
+        request.resource.data.role == 'staff' &&
+        request.resource.data.roles is list &&
+        request.resource.data.roles.hasOnly(['staff'])
+      );
+
+      allow update: if isAdmin()
+        || (signedIn() && request.auth.uid == uid &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'title']))
+        || (leaveManager() &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'name', 'title', 'annualAllowance', 'roadAllowance', 'usedLeave', 'usedRoadLeave'
+            ]))
+        || (leavePlanner() &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['planningScore', 'planningScoreNote']));
+
+      allow delete: if isAdmin();
+    }
+
+    match /settings/{docId} {
+      allow read: if approved();
+      allow create: if isAdmin();
+      allow update: if isAdmin()
+        || (financeManager() && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'bankName', 'accountName', 'iban', 'balancePeriod'
+        ]))
+        || ((approved() || laundryManager()) && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'laundryMachineStatus'
+        ]));
+      allow delete: if isAdmin();
+    }
+
+    match /mealChoices/{docId} {
+      allow read: if approved() && (isOwnNumericUserId(resource.data) || mealManager() || kitchenViewer());
+      allow create: if approved() && (isOwnNumericUserId(request.resource.data) || mealManager());
+      allow update: if approved() && (isOwnNumericUserId(resource.data) || mealManager());
+      allow delete: if approved() && (isOwnNumericUserId(resource.data) || mealManager());
+    }
+
+    match /mealExpenses/{docId} {
+      allow read, write: if financeManager();
+    }
+
+    match /payments/{docId} {
+      allow read: if approved() && (isOwnNumericUserId(resource.data) || financeManager());
+      allow create: if approved() && isOwnNumericUserId(request.resource.data) && request.resource.data.status == 'pending';
+      allow update, delete: if financeManager();
+    }
+
+    match /debts/{docId} {
+      allow read: if approved() && (isOwnNumericUserId(resource.data) || financeManager());
+      allow write: if financeManager();
+    }
+
+    match /leaveRequests/{docId} {
+      allow read: if approved() && (
+        isOwnNumericUserId(resource.data) ||
+        leaveViewer() ||
+        ((kitchenViewer() || financeManager()) && resource.data.status == 'approved' && resource.data.type == 'Yıllık İzin')
+      );
+
+      allow create: if approved() && (
+        (isOwnNumericUserId(request.resource.data) && request.resource.data.status == 'pending') ||
+        leaveManager()
+      );
+
+      allow update: if approved() && (
+        leaveApprover() ||
+        (isOwnNumericUserId(resource.data) && request.resource.data.status == 'pending' &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'type', 'city', 'start', 'end', 'days', 'note', 'status', 'updatedAt'
+          ]))
+      );
+
+      allow delete: if approved() && (
+        leaveManager() ||
+        (isOwnNumericUserId(resource.data) && (resource.data.status == 'pending' || resource.data.status == 'rejected'))
+      );
+    }
+
+    match /leavePreferences/{docId} {
+      allow read: if approved() && (isOwnNumericUserId(resource.data) || leavePlanner());
+      allow create: if approved() && (isOwnNumericUserId(request.resource.data) || leavePlanner());
+      allow update, delete: if approved() && (isOwnNumericUserId(resource.data) || leavePlanner());
+    }
+
+    match /leavePlanResults/{docId} {
+      allow read: if approved() && (isOwnNumericUserId(resource.data) || leavePlanner());
+      allow write: if leavePlanner();
+    }
+
+    match /laundryReservations/{docId} {
+      allow read: if approved();
+      allow create: if approved() && isOwnNumericUserId(request.resource.data);
+      allow update: if laundryManager();
+      allow delete: if approved() && (isOwnNumericUserId(resource.data) || laundryManager());
+    }
+
+    match /laundryFaults/{docId} {
+      allow read: if approved();
+      allow create: if approved() && isOwnNumericUserId(request.resource.data) && request.resource.data.status == 'Açık';
+      allow update, delete: if laundryManager();
+    }
+
+    match /attendance/{docId} {
+      allow read: if approved() && (isOwnNumericUserId(resource.data) || attendanceViewer());
+      allow write: if attendanceManager();
+    }
+
+    match /auditLogs/{docId} {
+      allow read: if isAdmin();
+      allow create: if approved() && request.resource.data.userId == myId();
+      allow update, delete: if isAdmin();
+    }
+
+    match /weeklyActivities/{docId} {
+      allow read: if approved();
+      allow create, update, delete: if activityManager();
+    }
+
+    match /dailyMenus/{docId} {
+      allow read: if approved();
+      allow create, update, delete: if menuManager();
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
