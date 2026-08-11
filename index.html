@@ -2,17 +2,13 @@
 <html lang="tr">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="theme-color" content="#0f172a" />
-  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
-  <meta http-equiv="Pragma" content="no-cache" />
-  <meta http-equiv="Expires" content="0" />
   <title>PBYS - Personel Bilgi Yönetim Sistemi</title>
-  <meta name="pbys-build" content="10.3.1-20260811-1625" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="pbys-styles-20260811-1625.css" />
+  <link rel="stylesheet" href="styles.css?v=8.7" />
 </head>
 <body>
   <div id="toast" class="toast" aria-live="polite"></div>
@@ -23,7 +19,6 @@
       <div>
         <h1>PBYS</h1>
         <p><strong>Personel Bilgi Yönetim Sistemi</strong></p>
-        <span class="auth-build-tag">Sürüm 10.3.1 · Üretim</span>
       </div>
     </div>
 
@@ -41,10 +36,15 @@
           <input id="loginPassword" type="password" placeholder="••••••" required />
         </label>
         <button class="btn btn-primary btn-block" type="submit">Sisteme Giriş</button>
-        <div class="info-box firebase-info-box">
+        <div class="demo-box firebase-info-box">
           <strong>Firebase bağlantılı sistem</strong>
           <span id="authHint">Telefon numaranız ve şifrenizle giriş yapın.</span>
           <span>Yeni üyelikler yönetici onayından sonra açılır.</span>
+        </div>
+        <div id="bootstrapBox" class="bootstrap-box hidden">
+          <strong>İlk kurulum gerekli</strong>
+          <span>Sistemde henüz admin hesabı yok. İlk yöneticiyi buradan oluşturun.</span>
+          <button id="bootstrapBtn" type="button" class="btn btn-warning btn-block">İlk Admin Hesabını Oluştur</button>
         </div>
       </form>
 
@@ -59,7 +59,7 @@
           <input id="registerTitle" type="text" required />
         </label>
         <label>Şifre
-          <input id="registerPassword" type="password" minlength="8" required />
+          <input id="registerPassword" type="password" minlength="6" required />
         </label>
         <button class="btn btn-primary btn-block" type="submit">Onaya Gönder</button>
         <p class="form-note">Hesabınız admin onayından sonra kullanıma açılır.</p>
@@ -74,7 +74,6 @@
         <div>
           <strong>PBYS</strong>
           <span>Personel Bilgi Yönetim Sistemi</span>
-          <span class="build-tag">Sürüm 10.3.1 · Üretim</span>
         </div>
       </div>
 
@@ -120,7 +119,7 @@
     </div>
   </div>
 
-  <script type="module" src="pbys-firebase-20260811-1625.js"></script>
-  <script src="pbys-app-20260811-1625.js"></script>
+  <script type="module" src="firebase.js?v=8.7"></script>
+  <script src="app.js?v=8.7"></script>
 </body>
 </html>
