@@ -14,7 +14,6 @@ import {
   collection,
   getDocs,
   query,
-  where,
   limit,
   doc,
   getDoc,
@@ -44,8 +43,6 @@ const DEFAULT_SETTINGS = {
   bankName: '',
   weeklyLaundryLimit: 2,
   leavePlanYear: 2027,
-  leavePreferenceYear: 2027,
-  leavePreferenceOpen: false,
   leaveConcurrentPercent: 25,
   roadAllowanceDefault: 2,
   planningSecondChoiceBonus: 20,
@@ -64,6 +61,7 @@ const COLLECTIONS = {
   leavePreferences: 'leavePreferences',
   leavePlanResults: 'leavePlanResults',
   laundry: 'laundryReservations',
+  laundryRuns: 'laundryRuns',
   laundryFaults: 'laundryFaults',
   attendance: 'attendance',
   auditLogs: 'auditLogs',
@@ -74,9 +72,6 @@ const COLLECTIONS = {
 let lastMaps = null;
 let realtimeUnsubs = [];
 let realtimeTimer = null;
-let accessProfile = null;
-let lastAccessSignature = '';
-let lastPermissionWarnings = [];
 
 function clean(value) {
   if (Array.isArray(value)) return value.map(clean);
@@ -99,9 +94,7 @@ function firebaseErrorMessage(error) {
     'auth/weak-password': 'Şifre en az 6 karakter olmalıdır.',
     'auth/too-many-requests': 'Çok fazla deneme yapıldı. Bir süre sonra tekrar deneyin.',
     'auth/network-request-failed': 'Firebase bağlantısı kurulamadı. İnternet bağlantınızı kontrol edin.',
-    'auth/operation-not-allowed': 'Firebase Authentication içinde Email/Password giriş yöntemi henüz etkinleştirilmemiş.',
-    'permission-denied': 'Firestore erişim izni reddedildi. Güvenlik kurallarını kontrol edin.',
-    'firestore/permission-denied': 'Firestore erişim izni reddedildi. Güvenlik kurallarını kontrol edin.'
+    'auth/operation-not-allowed': 'Firebase Authentication içinde Email/Password giriş yöntemi henüz etkinleştirilmemiş.'
   };
   return map[code] || error?.message || 'Firebase işlemi tamamlanamadı.';
 }
@@ -239,135 +232,9 @@ async function changePassword(newPassword) {
   await updatePassword(auth.currentUser, newPassword);
 }
 
-function accessSignature(profile) {
-  if (!profile) return '';
-  const roles = Array.isArray(profile.roles) ? [...profile.roles].sort() : [];
-  const extras = Array.isArray(profile.extraPermissions) ? [...profile.extraPermissions].sort() : [];
-  return JSON.stringify({
-    uid: profile.uid || '',
-    role: profile.role || '',
-    roles,
-    extras,
-    approved: !!profile.approved,
-    rejected: !!profile.rejected,
-    id: profile.id ?? null
-  });
-}
-
-function setAccessProfile(profile) {
-  const next = profile ? { ...profile } : null;
-  const nextSignature = accessSignature(next);
-  const changed = nextSignature !== lastAccessSignature;
-  accessProfile = next;
-  lastAccessSignature = nextSignature;
-  if (changed) lastMaps = null;
-  return changed;
-}
-
-async function refreshAccessProfile() {
-  const uid = auth.currentUser?.uid;
-  if (!uid) throw new Error('Oturum bulunamadı.');
-  const profile = await getUserProfile(uid);
-  if (!profile) throw new Error('Kullanıcı profili bulunamadı.');
-  setAccessProfile(profile);
-  return profile;
-}
-
-function isPermissionDenied(error) {
-  const code = String(error?.code || '');
-  return code === 'permission-denied' || code === 'firestore/permission-denied';
-}
-
-function profileRoles(profile = accessProfile) {
-  const roles = new Set(Array.isArray(profile?.roles) ? profile.roles : []);
-  if (profile?.role) roles.add(profile.role);
-  return roles;
-}
-
-function accessApproved() {
-  return !!(accessProfile?.approved && !accessProfile?.rejected);
-}
-
-function accessHasRole(role) {
-  return accessApproved() && profileRoles().has(role);
-}
-
-function accessHasExtra(permission) {
-  return accessApproved() && Array.isArray(accessProfile?.extraPermissions) && accessProfile.extraPermissions.includes(permission);
-}
-
-function accessIsAdmin() { return accessHasRole('admin'); }
-function personnelViewer() { return accessIsAdmin() || accessHasRole('administrative') || accessHasRole('commander') || accessHasExtra('personnel.view'); }
-function kitchenViewer() { return accessIsAdmin() || accessHasRole('cook') || accessHasExtra('kitchen.view'); }
-function mealManager() { return accessIsAdmin() || accessHasRole('tabldot') || accessHasRole('administrative') || accessHasExtra('meal.manage'); }
-function financeManager() { return accessIsAdmin() || accessHasRole('tabldot') || accessHasRole('administrative') || accessHasExtra('finance.manage'); }
-function attendanceViewer() { return accessIsAdmin() || accessHasRole('administrative') || accessHasRole('commander') || accessHasExtra('attendance.view') || accessHasExtra('attendance.manage'); }
-function leaveViewer() { return accessIsAdmin() || accessHasRole('administrative') || accessHasRole('commander') || accessHasExtra('leave.view') || accessHasExtra('leave.manage') || accessHasExtra('leave.approve') || accessHasExtra('leave.plan'); }
-function leavePlanner() { return accessIsAdmin() || accessHasRole('commander') || accessHasExtra('leave.plan'); }
-function laundryManager() { return accessIsAdmin() || accessHasExtra('laundry.manage'); }
-function ownNumericId() { return Number(accessProfile?.id); }
-
-async function collectionData(name, constraints = []) {
-  const ref = constraints.length ? query(collection(firestore, name), ...constraints) : collection(firestore, name);
-  const snap = await getDocs(ref);
+async function collectionData(name) {
+  const snap = await getDocs(collection(firestore, name));
   return snap.docs.map(d => ({ ...d.data(), _docId: d.id }));
-}
-
-function collectionRef(name, constraints = []) {
-  return constraints.length ? query(collection(firestore, name), ...constraints) : collection(firestore, name);
-}
-
-function readPlan() {
-  if (!accessApproved()) throw new Error('Onaylı kullanıcı oturumu bulunamadı.');
-  const myId = ownNumericId();
-  if (!Number.isFinite(myId)) throw new Error('Kullanıcı personel kimliği bulunamadı.');
-
-  const fullUsers = personnelViewer() || leaveViewer() || attendanceViewer();
-  const approvedUsers = !fullUsers && (kitchenViewer() || mealManager() || financeManager() || laundryManager());
-
-  return {
-    myId,
-    users: fullUsers ? { mode: 'collection' } : approvedUsers ? { mode: 'query', constraints: [where('approved', '==', true)] } : { mode: 'ownDoc' },
-    mealChoices: (mealManager() || kitchenViewer()) ? { mode: 'collection' } : { mode: 'query', constraints: [where('userId', '==', myId)] },
-    expenses: financeManager() ? { mode: 'collection' } : { mode: 'none' },
-    payments: financeManager() ? { mode: 'collection' } : { mode: 'query', constraints: [where('userId', '==', myId)] },
-    debts: financeManager() ? { mode: 'collection' } : { mode: 'query', constraints: [where('userId', '==', myId)] },
-    leaveRequests: leaveViewer()
-      ? { mode: 'collection' }
-      : (kitchenViewer() || financeManager())
-        ? { mode: 'query', constraints: [where('status', '==', 'approved'), where('type', '==', 'Yıllık İzin')] }
-        : { mode: 'query', constraints: [where('userId', '==', myId)] },
-    leavePreferences: leavePlanner() ? { mode: 'collection' } : { mode: 'query', constraints: [where('userId', '==', myId)] },
-    leavePlanResults: leavePlanner() ? { mode: 'collection' } : { mode: 'query', constraints: [where('userId', '==', myId)] },
-    laundry: { mode: 'collection' },
-    laundryFaults: { mode: 'collection' },
-    attendance: attendanceViewer() ? { mode: 'collection' } : { mode: 'query', constraints: [where('userId', '==', myId)] },
-    auditLogs: accessIsAdmin() ? { mode: 'collection' } : { mode: 'none' },
-    weeklyActivities: { mode: 'collection' },
-    dailyMenus: { mode: 'collection' }
-  };
-}
-
-async function readByPlan(name, plan) {
-  if (!plan || plan.mode === 'none') return [];
-  if (plan.mode === 'ownDoc') {
-    const uid = auth.currentUser?.uid;
-    if (!uid) return [];
-    const snap = await getDoc(doc(firestore, COLLECTIONS.users, uid));
-    return snap.exists() ? [{ ...snap.data(), _docId: snap.id }] : [];
-  }
-  return collectionData(name, plan.constraints || []);
-}
-
-async function safeReadByPlan(label, name, plan) {
-  try {
-    return await readByPlan(name, plan);
-  } catch (error) {
-    if (!isPermissionDenied(error)) throw error;
-    console.warn(`[PBYS] ${label} koleksiyonu mevcut yetkiyle okunamadı; bu bölüm boş bırakıldı.`, error);
-    lastPermissionWarnings.push(label);
-    return [];
-  }
 }
 
 function emptyState(settings = DEFAULT_SETTINGS) {
@@ -381,6 +248,7 @@ function emptyState(settings = DEFAULT_SETTINGS) {
     leavePreferences: [],
     leavePlanResults: [],
     laundry: [],
+    laundryRuns: [],
     laundryFaults: [],
     attendance: [],
     auditLogs: [],
@@ -410,6 +278,7 @@ function stateToMaps(state) {
   maps.leavePreferences = arrayMap(state.leavePreferences, x => `${x.userId}_${x.year}`);
   maps.leavePlanResults = arrayMap(state.leavePlanResults, x => `${x.userId}_${x.year}`);
   maps.laundry = arrayMap(state.laundry);
+  maps.laundryRuns = arrayMap(state.laundryRuns);
   maps.laundryFaults = arrayMap(state.laundryFaults);
   maps.attendance = arrayMap(state.attendance);
   maps.auditLogs = arrayMap(state.auditLogs);
@@ -464,46 +333,28 @@ async function currentCloudMaps() {
 }
 
 async function loadState(updateSnapshot = true) {
-  // Yetki değişiklikleri Firestore Rules tarafında anında geçerlidir. Her veri
-  // yüklemesinden önce kendi profilimizi tekrar okuyarak eski rol/yetki planıyla
-  // sorgu göndermeyi engelliyoruz.
-  await refreshAccessProfile();
-  const plan = readPlan();
-  lastPermissionWarnings = [];
+  const settingsSnap = await getDoc(doc(firestore, 'settings', 'app'));
+  const state = emptyState(settingsSnap.exists() ? settingsSnap.data() : await ensureSettings());
 
-  let settings = DEFAULT_SETTINGS;
-  try {
-    const settingsSnap = await getDoc(doc(firestore, 'settings', 'app'));
-    settings = settingsSnap.exists()
-      ? settingsSnap.data()
-      : (accessIsAdmin() ? await ensureSettings() : DEFAULT_SETTINGS);
-  } catch (error) {
-    if (!isPermissionDenied(error)) throw error;
-    console.warn('[PBYS] settings/app mevcut yetkiyle okunamadı; varsayılan ayarlar kullanılıyor.', error);
-    lastPermissionWarnings.push('settings/app');
-  }
-
-  const state = emptyState(settings);
-  const [users, meals, expenses, payments, debts, leaves, prefs, plans, laundry, laundryFaults, attendance, audits, activities, menus] = await Promise.all([
-    safeReadByPlan('users', COLLECTIONS.users, plan.users),
-    safeReadByPlan('mealChoices', COLLECTIONS.mealChoices, plan.mealChoices),
-    safeReadByPlan('mealExpenses', COLLECTIONS.expenses, plan.expenses),
-    safeReadByPlan('payments', COLLECTIONS.payments, plan.payments),
-    safeReadByPlan('debts', COLLECTIONS.debts, plan.debts),
-    safeReadByPlan('leaveRequests', COLLECTIONS.leaveRequests, plan.leaveRequests),
-    safeReadByPlan('leavePreferences', COLLECTIONS.leavePreferences, plan.leavePreferences),
-    safeReadByPlan('leavePlanResults', COLLECTIONS.leavePlanResults, plan.leavePlanResults),
-    safeReadByPlan('laundryReservations', COLLECTIONS.laundry, plan.laundry),
-    safeReadByPlan('laundryFaults', COLLECTIONS.laundryFaults, plan.laundryFaults),
-    safeReadByPlan('attendance', COLLECTIONS.attendance, plan.attendance),
-    safeReadByPlan('auditLogs', COLLECTIONS.auditLogs, plan.auditLogs),
-    safeReadByPlan('weeklyActivities', COLLECTIONS.weeklyActivities, plan.weeklyActivities),
-    safeReadByPlan('dailyMenus', COLLECTIONS.dailyMenus, plan.dailyMenus)
+  const [users, meals, expenses, payments, debts, leaves, prefs, plans, laundry, laundryRuns, laundryFaults, attendance, audits, activities, menus] = await Promise.all([
+    collectionData(COLLECTIONS.users),
+    collectionData(COLLECTIONS.mealChoices),
+    collectionData(COLLECTIONS.expenses),
+    collectionData(COLLECTIONS.payments),
+    collectionData(COLLECTIONS.debts),
+    collectionData(COLLECTIONS.leaveRequests),
+    collectionData(COLLECTIONS.leavePreferences),
+    collectionData(COLLECTIONS.leavePlanResults),
+    collectionData(COLLECTIONS.laundry),
+    collectionData(COLLECTIONS.laundryRuns),
+    collectionData(COLLECTIONS.laundryFaults),
+    collectionData(COLLECTIONS.attendance),
+    collectionData(COLLECTIONS.auditLogs),
+    collectionData(COLLECTIONS.weeklyActivities),
+    collectionData(COLLECTIONS.dailyMenus)
   ]);
 
   state.users = users.map(x => ({ ...x, uid: x.uid || x._docId })).map(({ _docId, ...x }) => x);
-  if (!state.users.some(u => u.uid === accessProfile?.uid) && accessProfile) state.users.push({ ...accessProfile });
-
   meals.forEach(({ _docId, userId, date, breakfast = '', dinner = '' }) => {
     state.mealSelections[userId] ||= {};
     state.mealSelections[userId][date] = { breakfast, dinner };
@@ -516,12 +367,12 @@ async function loadState(updateSnapshot = true) {
   state.leavePreferences = strip(prefs);
   state.leavePlanResults = strip(plans);
   state.laundry = strip(laundry);
+  state.laundryRuns = strip(laundryRuns);
   state.laundryFaults = strip(laundryFaults);
   state.attendance = strip(attendance);
   state.auditLogs = strip(audits).sort((a, b) => String(b.at || '').localeCompare(String(a.at || ''))).slice(0, 500);
   state.weeklyActivities = strip(activities);
   state.dailyMenus = Object.fromEntries(menus.map(({ _docId, date, ...menu }) => [date || _docId, menu]));
-  state.permissionWarnings = [...lastPermissionWarnings];
 
   if (updateSnapshot) lastMaps = stateToMaps(state);
   return state;
@@ -533,100 +384,22 @@ function stopRealtime() {
   if (realtimeTimer) clearTimeout(realtimeTimer);
 }
 
-function realtimeRefs() {
-  const plan = readPlan();
-  const refs = [{ label: 'settings/app', ref: doc(firestore, 'settings', 'app') }];
-  const add = (label, name, itemPlan) => {
-    if (!itemPlan || itemPlan.mode === 'none') return;
-    if (itemPlan.mode === 'ownDoc') {
-      const uid = auth.currentUser?.uid;
-      if (uid) refs.push({ label, ref: doc(firestore, name, uid) });
-      return;
-    }
-    refs.push({ label, ref: collectionRef(name, itemPlan.constraints || []) });
-  };
-  add('users', COLLECTIONS.users, plan.users);
-  add('mealChoices', COLLECTIONS.mealChoices, plan.mealChoices);
-  add('mealExpenses', COLLECTIONS.expenses, plan.expenses);
-  add('payments', COLLECTIONS.payments, plan.payments);
-  add('debts', COLLECTIONS.debts, plan.debts);
-  add('leaveRequests', COLLECTIONS.leaveRequests, plan.leaveRequests);
-  add('leavePreferences', COLLECTIONS.leavePreferences, plan.leavePreferences);
-  add('leavePlanResults', COLLECTIONS.leavePlanResults, plan.leavePlanResults);
-  add('laundryReservations', COLLECTIONS.laundry, plan.laundry);
-  add('laundryFaults', COLLECTIONS.laundryFaults, plan.laundryFaults);
-  add('attendance', COLLECTIONS.attendance, plan.attendance);
-  add('auditLogs', COLLECTIONS.auditLogs, plan.auditLogs);
-  add('weeklyActivities', COLLECTIONS.weeklyActivities, plan.weeklyActivities);
-  add('dailyMenus', COLLECTIONS.dailyMenus, plan.dailyMenus);
-  return refs;
-}
-
 function startRealtime(callback) {
   stopRealtime();
-  let restarting = false;
-
-  const reload = async () => {
-    try {
-      const state = await loadState(true);
-      callback(state);
-    } catch (error) {
-      console.error('Realtime refresh error', error);
-    }
-  };
-
-  const restartForPermissions = async () => {
-    if (restarting) return;
-    restarting = true;
-    try {
-      const before = lastAccessSignature;
-      await refreshAccessProfile();
-      // Eski listener'lar önceki rolün sorgularını taşımış olabilir. Profil
-      // değişmiş olsun veya olmasın permission-denied sonrası planı yeniden kur.
-      stopRealtime();
-      await reload();
-      startRealtime(callback);
-      if (before !== lastAccessSignature) console.info('[PBYS] Yetki değişikliği algılandı; Firestore dinleyicileri yenilendi.');
-    } catch (error) {
-      console.error('Yetki planı yenilenemedi', error);
-    } finally {
-      restarting = false;
-    }
-  };
-
+  const names = [...Object.values(COLLECTIONS), 'settings'];
   const schedule = snap => {
     if (snap?.metadata?.hasPendingWrites) return;
     clearTimeout(realtimeTimer);
-    realtimeTimer = setTimeout(reload, 350);
-  };
-
-  // Kendi kullanıcı belgemizi ayrıca dinliyoruz. Admin rol/yetkiyi değiştirdiği
-  // anda yeni profil okunur ve listener planı otomatik yeniden kurulur.
-  const uid = auth.currentUser?.uid;
-  if (uid) {
-    const ownRef = doc(firestore, COLLECTIONS.users, uid);
-    realtimeUnsubs.push(onSnapshot(ownRef, async snap => {
-      if (!snap.exists()) return;
-      const nextProfile = { ...snap.data(), uid: snap.id };
-      const changed = setAccessProfile(nextProfile);
-      if (changed) {
-        stopRealtime();
-        await reload();
-        startRealtime(callback);
+    realtimeTimer = setTimeout(async () => {
+      try {
+        const state = await loadState(true);
+        callback(state);
+      } catch (error) {
+        console.error('Realtime refresh error', error);
       }
-    }, error => {
-      console.error('Listener access-profile', error);
-    }));
-  }
-
-  realtimeRefs().forEach(({ label, ref }) => {
-    // users ownDoc zaten access-profile ile dinleniyor; çift listener gereksiz.
-    if (label === 'users' && ref?.path === `${COLLECTIONS.users}/${uid}`) return;
-    realtimeUnsubs.push(onSnapshot(ref, schedule, error => {
-      console.error(`Listener ${label}`, error);
-      if (isPermissionDenied(error)) restartForPermissions();
-    }));
-  });
+    }, 350);
+  };
+  names.forEach(name => realtimeUnsubs.push(onSnapshot(collection(firestore, name), schedule, error => console.error(`Listener ${name}`, error))));
   return stopRealtime;
 }
 
@@ -639,8 +412,6 @@ window.FirebaseBridge = {
   hasAnyUsers,
   hasAnyAdmin,
   getUserProfile,
-  setAccessProfile,
-  refreshAccessProfile,
   bootstrapAdmin,
   registerPending,
   adminCreateUser,
@@ -652,8 +423,7 @@ window.FirebaseBridge = {
   loadState,
   saveState,
   startRealtime,
-  stopRealtime,
-  permissionWarnings: () => [...lastPermissionWarnings]
+  stopRealtime
 };
 
 window.dispatchEvent(new CustomEvent('firebase-ready'));
