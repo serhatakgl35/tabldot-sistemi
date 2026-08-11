@@ -238,6 +238,38 @@ async function collectionData(name) {
   return snap.docs.map(d => ({ ...d.data(), _docId: d.id }));
 }
 
+function isPermissionDenied(error) {
+  return error?.code === 'permission-denied' || error?.code === 'firestore/permission-denied';
+}
+
+async function collectionDataSafe(name) {
+  try {
+    return await collectionData(name);
+  } catch (error) {
+    if (isPermissionDenied(error)) {
+      console.warn(`Firestore koleksiyonu bu kullanıcı için kapalı: ${name}`);
+      return [];
+    }
+    throw error;
+  }
+}
+
+async function settingsDataSafe() {
+  try {
+    const snap = await getDoc(doc(firestore, 'settings', 'app'));
+    if (snap.exists()) return snap.data();
+    try {
+      return await ensureSettings();
+    } catch (error) {
+      if (isPermissionDenied(error)) return DEFAULT_SETTINGS;
+      throw error;
+    }
+  } catch (error) {
+    if (isPermissionDenied(error)) return DEFAULT_SETTINGS;
+    throw error;
+  }
+}
+
 function emptyState(settings = DEFAULT_SETTINGS) {
   return {
     users: [],
@@ -334,27 +366,37 @@ async function currentCloudMaps() {
 }
 
 async function loadState(updateSnapshot = true) {
-  const settingsSnap = await getDoc(doc(firestore, 'settings', 'app'));
-  const state = emptyState(settingsSnap.exists() ? settingsSnap.data() : await ensureSettings());
+  const state = emptyState(await settingsDataSafe());
 
+  // Bir personelin erişemediği yönetim koleksiyonu tüm giriş akışını bozmamalı.
+  // Her koleksiyon bağımsız okunur; Firestore Rules izin vermiyorsa yalnızca o veri boş bırakılır.
   const [users, meals, expenses, payments, debts, leaves, prefs, plans, laundryAll, laundryFaults, attendance, audits, activities, menus] = await Promise.all([
-    collectionData(COLLECTIONS.users),
-    collectionData(COLLECTIONS.mealChoices),
-    collectionData(COLLECTIONS.expenses),
-    collectionData(COLLECTIONS.payments),
-    collectionData(COLLECTIONS.debts),
-    collectionData(COLLECTIONS.leaveRequests),
-    collectionData(COLLECTIONS.leavePreferences),
-    collectionData(COLLECTIONS.leavePlanResults),
-    collectionData(COLLECTIONS.laundry),
-    collectionData(COLLECTIONS.laundryFaults),
-    collectionData(COLLECTIONS.attendance),
-    collectionData(COLLECTIONS.auditLogs),
-    collectionData(COLLECTIONS.weeklyActivities),
-    collectionData(COLLECTIONS.dailyMenus)
+    collectionDataSafe(COLLECTIONS.users),
+    collectionDataSafe(COLLECTIONS.mealChoices),
+    collectionDataSafe(COLLECTIONS.expenses),
+    collectionDataSafe(COLLECTIONS.payments),
+    collectionDataSafe(COLLECTIONS.debts),
+    collectionDataSafe(COLLECTIONS.leaveRequests),
+    collectionDataSafe(COLLECTIONS.leavePreferences),
+    collectionDataSafe(COLLECTIONS.leavePlanResults),
+    collectionDataSafe(COLLECTIONS.laundry),
+    collectionDataSafe(COLLECTIONS.laundryFaults),
+    collectionDataSafe(COLLECTIONS.attendance),
+    collectionDataSafe(COLLECTIONS.auditLogs),
+    collectionDataSafe(COLLECTIONS.weeklyActivities),
+    collectionDataSafe(COLLECTIONS.dailyMenus)
   ]);
 
   state.users = users.map(x => ({ ...x, uid: x.uid || x._docId })).map(({ _docId, ...x }) => x);
+  // Kullanıcı listesini topluca okuma yetkisi olmasa bile oturum sahibinin kendi profili sisteme eklenir.
+  if (auth.currentUser && !state.users.some(u => u.uid === auth.currentUser.uid)) {
+    try {
+      const ownProfile = await getUserProfile(auth.currentUser.uid);
+      if (ownProfile) state.users.push(ownProfile);
+    } catch (error) {
+      if (!isPermissionDenied(error)) throw error;
+    }
+  }
   meals.forEach(({ _docId, userId, date, breakfast = '', dinner = '' }) => {
     state.mealSelections[userId] ||= {};
     state.mealSelections[userId][date] = { breakfast, dinner };
@@ -399,7 +441,13 @@ function startRealtime(callback) {
       }
     }, 350);
   };
-  names.forEach(name => realtimeUnsubs.push(onSnapshot(collection(firestore, name), schedule, error => console.error(`Listener ${name}`, error))));
+  names.forEach(name => realtimeUnsubs.push(onSnapshot(collection(firestore, name), schedule, error => {
+    if (isPermissionDenied(error)) {
+      console.warn(`Realtime erişimi bu kullanıcı için kapalı: ${name}`);
+      return;
+    }
+    console.error(`Listener ${name}`, error);
+  })));
   return stopRealtime;
 }
 
