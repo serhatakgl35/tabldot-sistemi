@@ -11,6 +11,7 @@ const seed = {
     bankName: '',
     weeklyLaundryLimit: 2,
     leavePlanYear: 2027,
+    leavePreferencesOpen: true,
     leaveConcurrentPercent: 25,
     roadAllowanceDefault: 2,
     planningSecondChoiceBonus: 20,
@@ -244,7 +245,7 @@ function notice(title, sub) { return `<div class="quick-item"><div><strong>${tit
 
 async function registerNotificationWorker() {
   if (!('serviceWorker' in navigator) || !window.isSecureContext) return null;
-  try { return await navigator.serviceWorker.register('./sw.js?v=9.2.4'); }
+  try { return await navigator.serviceWorker.register('./sw.js?v=9.2.5'); }
   catch (error) { console.warn('Bildirim service worker kaydı yapılamadı:', error); return null; }
 }
 async function requestSiteNotifications() {
@@ -1708,38 +1709,49 @@ function rejectLeave(id) { if (!hasPermission('leave.approve') && !hasPermission
 
 function renderMyLeavePreference() {
   const year = db.settings.leavePlanYear;
+  const preferenceOpen = db.settings.leavePreferencesOpen !== false;
   const rawPreference = db.leavePreferences.find(x => x.userId === currentUser.id && x.year === year);
   const preference = normalizePreferenceRecord(rawPreference);
+  const resetPending = preference?.resetRequestStatus === 'pending';
   const result = normalizeLeavePlanResult(db.leavePlanResults.find(x => x.userId === currentUser.id && x.year === year && x.announced));
   const v = key => preference?.[key] || '';
+  const formDisabled = (!preferenceOpen || resetPending) ? 'disabled' : '';
+  const resetInfo = preference ? (resetPending
+    ? `<div class="management-banner"><strong>Sıfırlama talebiniz admin onayı bekliyor</strong><span>Admin onaylayana kadar mevcut tercihleriniz korunur.</span></div>`
+    : preference.resetRequestStatus === 'rejected'
+      ? `<div class="management-banner"><strong>Son sıfırlama talebiniz reddedildi</strong><span>Mevcut tercihleriniz korunuyor. Gerekirse yeniden talep gönderebilirsiniz.</span></div>`
+      : '') : '';
   document.getElementById('pageContent').innerHTML = `
-    <div class="grid grid-2">${metric('🗓', 'Planlama yılı', year, 'Yönetim tarafından belirlenir')}${metric('📌', 'Planlama sonucu', result ? resultLabel(result) : 'Değerlendirme bekleniyor', result ? 'Kış ve yaz sonuçları yönetim tarafından açıklandı' : 'Puan ve iç değerlendirme personele gösterilmez')}</div>
+    <div class="grid grid-3">${metric('🗓', 'Planlama yılı', year, 'Yönetim tarafından belirlenir')}${metric('🔐', 'Tercih sistemi', preferenceOpen ? 'Açık' : 'Kapalı', preferenceOpen ? 'Tercih girişi ve güncelleme yapılabilir' : 'Admin tarafından geçici olarak kapatıldı')}${metric('📌', 'Planlama sonucu', result ? resultLabel(result) : 'Değerlendirme bekleniyor', result ? 'Kış ve yaz sonuçları yönetim tarafından açıklandı' : 'Puan ve iç değerlendirme personele gösterilmez')}</div>
+    ${!preferenceOpen ? `<div class="management-banner section-gap"><strong>Yıllık izin tercihleri şu anda kapalı</strong><span>Mevcut tercihinizi görüntüleyebilirsiniz ancak yeni tercih kaydedemez veya düzenleyemezsiniz.</span></div>` : ''}
+    ${resetInfo}
     <div class="card section-gap"><div class="card-header"><div><h3>${year} yıllık izin tercih formu</h3><p>Toplam 4 tercih alınır: Kış döneminde 10 günlük 2 tercih, yaz döneminde 20 günlük 2 tercih.</p></div></div><div class="card-body">
       ${preference?.status === 'reselect' ? '<div class="management-banner"><strong>Tekrar tercih istendi</strong><span>Yönetim tercihlerinizi yeniden düzenlemenizi istiyor.</span></div>' : ''}
       <form id="preferenceForm" class="form-grid section-gap">
         <div class="span-2 preference-period-title"><strong>❄️ KIŞ DÖNEMİ · 10 GÜN</strong><span>Ocak, Şubat, Mart, Nisan, Mayıs, Ekim, Kasım, Aralık</span></div>
         <div class="span-2 preference-heading"><strong>Kış 1. Tercih</strong><span>Öncelikli kış izin dönemi</span></div>
-        <label>Başlangıç<input id="winterFirstStartInput" name="winterFirstStart" type="date" value="${v('winterFirstStart')}" required></label>
+        <label>Başlangıç<input id="winterFirstStartInput" name="winterFirstStart" type="date" value="${v('winterFirstStart')}" required ${formDisabled}></label>
         <label>Bitiş (otomatik)<input id="winterFirstEndInput" type="date" value="${v('winterFirstStart') ? preferenceEndForStart(v('winterFirstStart')) : ''}" readonly></label>
         <div class="span-2 preference-heading"><strong>Kış 2. Tercih</strong><span>İlk kış tercihi uygun olmazsa değerlendirilir</span></div>
-        <label>Başlangıç<input id="winterSecondStartInput" name="winterSecondStart" type="date" value="${v('winterSecondStart')}" required></label>
+        <label>Başlangıç<input id="winterSecondStartInput" name="winterSecondStart" type="date" value="${v('winterSecondStart')}" required ${formDisabled}></label>
         <label>Bitiş (otomatik)<input id="winterSecondEndInput" type="date" value="${v('winterSecondStart') ? preferenceEndForStart(v('winterSecondStart')) : ''}" readonly></label>
 
         <div class="span-2 preference-period-title preference-summer"><strong>☀️ YAZ DÖNEMİ · 20 GÜN</strong><span>Haziran, Temmuz, Ağustos, Eylül</span></div>
         <div class="span-2 preference-heading"><strong>Yaz 1. Tercih</strong><span>Öncelikli yaz izin dönemi</span></div>
-        <label>Başlangıç<input id="summerFirstStartInput" name="summerFirstStart" type="date" value="${v('summerFirstStart')}" required></label>
+        <label>Başlangıç<input id="summerFirstStartInput" name="summerFirstStart" type="date" value="${v('summerFirstStart')}" required ${formDisabled}></label>
         <label>Bitiş (otomatik)<input id="summerFirstEndInput" type="date" value="${v('summerFirstStart') ? preferenceEndForStart(v('summerFirstStart')) : ''}" readonly></label>
         <div class="span-2 preference-heading"><strong>Yaz 2. Tercih</strong><span>İlk yaz tercihi uygun olmazsa değerlendirilir</span></div>
-        <label>Başlangıç<input id="summerSecondStartInput" name="summerSecondStart" type="date" value="${v('summerSecondStart')}" required></label>
+        <label>Başlangıç<input id="summerSecondStartInput" name="summerSecondStart" type="date" value="${v('summerSecondStart')}" required ${formDisabled}></label>
         <label>Bitiş (otomatik)<input id="summerSecondEndInput" type="date" value="${v('summerSecondStart') ? preferenceEndForStart(v('summerSecondStart')) : ''}" readonly></label>
-        <label class="span-2">Açıklama<textarea name="note" placeholder="Varsa planlamada dikkate alınmasını istediğiniz husus">${escapeHtml(preference?.note || '')}</textarea></label>
-        <div class="span-2"><button class="btn btn-primary btn-block">4 Tercihimi Kaydet</button></div>
+        <label class="span-2">Açıklama<textarea name="note" placeholder="Varsa planlamada dikkate alınmasını istediğiniz husus" ${formDisabled}>${escapeHtml(preference?.note || '')}</textarea></label>
+        <div class="span-2"><button class="btn btn-primary btn-block" ${formDisabled}>${resetPending ? 'Sıfırlama Talebi Sonuçlanana Kadar Kilitli' : preferenceOpen ? '4 Tercihimi Kaydet' : 'Tercih Sistemi Kapalı'}</button></div>
       </form>
     </div></div>
     ${preference ? `<div class="grid grid-2 section-gap">
       <div class="card"><div class="card-header"><div><h3>❄️ Kış dönemi tercih özeti</h3><p>10 günlük izin planlaması</p></div></div><div class="card-body preference-summary"><div><strong>1. tercih</strong><span>${v('winterFirstStart')?`${formatDate(v('winterFirstStart'))} – ${formatDate(v('winterFirstEnd'))}`:'—'}</span></div><div><strong>2. tercih</strong><span>${v('winterSecondStart')?`${formatDate(v('winterSecondStart'))} – ${formatDate(v('winterSecondEnd'))}`:'—'}</span></div></div></div>
       <div class="card"><div class="card-header"><div><h3>☀️ Yaz dönemi tercih özeti</h3><p>20 günlük izin planlaması</p></div>${statusBadge(preference.status === 'reselect' ? 'warning' : 'submitted')}</div><div class="card-body preference-summary"><div><strong>1. tercih</strong><span>${v('summerFirstStart')?`${formatDate(v('summerFirstStart'))} – ${formatDate(v('summerFirstEnd'))}`:'—'}</span></div><div><strong>2. tercih</strong><span>${v('summerSecondStart')?`${formatDate(v('summerSecondStart'))} – ${formatDate(v('summerSecondEnd'))}`:'—'}</span></div></div></div>
-    </div>` : ''}`;
+    </div>
+    <div class="card section-gap"><div class="card-header"><div><h3>Tercihlerimi sıfırla</h3><p>Sıfırlama doğrudan yapılmaz; talep Admin onayına gönderilir.</p></div></div><div class="card-body">${resetPending ? `<div class="management-banner"><strong>Onay bekleniyor</strong><span>Talebiniz Admin tarafından incelendikten sonra sonuçlanacaktır.</span></div>` : `<button class="btn btn-danger" onclick="requestOwnLeavePreferenceReset()">Sıfırlama Talebi Gönder</button>`}</div></div>` : ''}`;
 
   const pairs = [
     ['winterFirstStartInput','winterFirstEndInput'], ['winterSecondStartInput','winterSecondEndInput'],
@@ -1747,8 +1759,11 @@ function renderMyLeavePreference() {
   ];
   const syncEnds = () => pairs.forEach(([startId,endId]) => { const input=document.getElementById(startId); if(input) document.getElementById(endId).value=input.value?preferenceEndForStart(input.value):''; });
   pairs.forEach(([startId]) => document.getElementById(startId)?.addEventListener('change', syncEnds));
-  document.getElementById('preferenceForm').addEventListener('submit', e => {
-    e.preventDefault(); const f = new FormData(e.target);
+  document.getElementById('preferenceForm')?.addEventListener('submit', e => {
+    e.preventDefault();
+    if (db.settings.leavePreferencesOpen === false) return toast('Yıllık izin tercih sistemi Admin tarafından kapatıldı.');
+    if (preference?.resetRequestStatus === 'pending') return toast('Sıfırlama talebiniz sonuçlanana kadar tercihinizi değiştiremezsiniz.');
+    const f = new FormData(e.target);
     const winterFirstStart=f.get('winterFirstStart'), winterSecondStart=f.get('winterSecondStart');
     const summerFirstStart=f.get('summerFirstStart'), summerSecondStart=f.get('summerSecondStart');
     if (![winterFirstStart,winterSecondStart].every(x=>isValidPreferenceSeason(x,'winter'))) return toast('Kış tercihleri yalnızca Ocak-Mayıs veya Ekim-Aralık aylarından başlamalıdır.');
@@ -1760,12 +1775,54 @@ function renderMyLeavePreference() {
     const allDates=[winterFirstStart,winterFirstEnd,winterSecondStart,winterSecondEnd,summerFirstStart,summerFirstEnd,summerSecondStart,summerSecondEnd];
     if (!allDates.every(x => Number(x.slice(0,4)) === Number(year))) return toast(`Bütün tercih tarihleri ${year} yılı içinde olmalıdır.`);
     const existing = db.leavePreferences.find(x => x.userId === currentUser.id && x.year === year);
-    const payload = { userId: currentUser.id, year, winterFirstStart,winterFirstEnd,winterSecondStart,winterSecondEnd,summerFirstStart,summerFirstEnd,summerSecondStart,summerSecondEnd,note:f.get('note'),submittedAt:toISO(new Date()),status:'submitted',revision:(existing?.revision || 0) + 1 };
-    if (existing) { Object.assign(existing,payload); delete existing.firstStart; delete existing.firstEnd; delete existing.secondStart; delete existing.secondEnd; }
-    else db.leavePreferences.push({id:Date.now(),...payload});
+    const payload = { userId: currentUser.id, year, winterFirstStart,winterFirstEnd,winterSecondStart,winterSecondEnd,summerFirstStart,summerFirstEnd,summerSecondStart,summerSecondEnd,note:f.get('note'),submittedAt:new Date().toISOString(),status:'submitted',revision:(existing?.revision || 0) + 1 };
+    if (existing) {
+      Object.assign(existing,payload);
+      delete existing.firstStart; delete existing.firstEnd; delete existing.secondStart; delete existing.secondEnd;
+      delete existing.resetRequestStatus; delete existing.resetRequestedAt; delete existing.resetRequestedBy; delete existing.resetReviewedAt; delete existing.resetReviewedBy;
+    } else db.leavePreferences.push({id:Date.now(),...payload});
     db.leavePlanResults = db.leavePlanResults.filter(x => !(x.year===year && x.userId===currentUser.id));
     saveDB(); renderMyLeavePreference(); toast('Kış ve yaz dönemi için toplam 4 tercihiniz yönetim değerlendirmesine gönderildi.');
   });
+}
+function requestOwnLeavePreferenceReset() {
+  const year = db.settings.leavePlanYear;
+  const preference = db.leavePreferences.find(x => x.userId === currentUser.id && x.year === year);
+  if (!preference) return toast('Sıfırlanacak yıllık izin tercihiniz bulunmuyor.');
+  if (preference.resetRequestStatus === 'pending') return toast('Sıfırlama talebiniz zaten Admin onayı bekliyor.');
+  if (!confirm(`${year} yılı yıllık izin tercihlerinizin sıfırlanması için Admin onayına talep gönderilsin mi?`)) return;
+  preference.resetRequestStatus = 'pending';
+  preference.resetRequestedAt = new Date().toISOString();
+  preference.resetRequestedBy = currentUser.id;
+  delete preference.resetReviewedAt;
+  delete preference.resetReviewedBy;
+  logAudit('leave.preference_reset_request', `${currentUser.name}: ${year} yıllık izin tercihi sıfırlama talebi gönderdi`);
+  saveDB(); renderMyLeavePreference(); toast('Sıfırlama talebiniz Admin onayına gönderildi.');
+}
+function approveLeavePreferenceReset(userId) {
+  if (!isAdmin()) return toast('Bu işlemi yalnızca Admin yapabilir.');
+  userId = Number(userId);
+  const year = db.settings.leavePlanYear;
+  const preference = db.leavePreferences.find(x => x.userId === userId && x.year === year && x.resetRequestStatus === 'pending');
+  if (!preference) return toast('Bekleyen sıfırlama talebi bulunamadı.');
+  const user = getUser(userId);
+  if (!confirm(`${user?.name || 'Personel'} kullanıcısının ${year} yılı yıllık izin tercihleri sıfırlansın mı?`)) return;
+  db.leavePreferences = db.leavePreferences.filter(x => !(x.userId === userId && x.year === year));
+  db.leavePlanResults = db.leavePlanResults.filter(x => !(x.userId === userId && x.year === year));
+  logAudit('leave.preference_reset_approve', `${user?.name || userId}: ${year} yıllık izin tercihi sıfırlandı`);
+  saveDB(); renderLeavePlanning(); toast('Personelin yıllık izin tercihleri sıfırlandı.');
+}
+function rejectLeavePreferenceReset(userId) {
+  if (!isAdmin()) return toast('Bu işlemi yalnızca Admin yapabilir.');
+  userId = Number(userId);
+  const year = db.settings.leavePlanYear;
+  const preference = db.leavePreferences.find(x => x.userId === userId && x.year === year && x.resetRequestStatus === 'pending');
+  if (!preference) return toast('Bekleyen sıfırlama talebi bulunamadı.');
+  preference.resetRequestStatus = 'rejected';
+  preference.resetReviewedAt = new Date().toISOString();
+  preference.resetReviewedBy = currentUser.id;
+  logAudit('leave.preference_reset_reject', `${getUser(userId)?.name || userId}: ${year} yıllık izin tercihi sıfırlama talebi reddedildi`);
+  saveDB(); renderLeavePlanning(); toast('Sıfırlama talebi reddedildi; mevcut tercihler korundu.');
 }
 function resultLabel(result) {
   if (result.status === 'reselect') return 'Tekrar tercih isteniyor';
@@ -1778,6 +1835,8 @@ function renderLeavePlanning() {
   const preferences = db.leavePreferences.filter(x => x.year === year).map(normalizePreferenceRecord);
   const results = db.leavePlanResults.filter(x => x.year === year).map(normalizeLeavePlanResult);
   const capacity = concurrentLeaveCapacity();
+  const pendingResetRequests = preferences.filter(p => p.resetRequestStatus === 'pending');
+  const resetRequestRows = pendingResetRequests.map(p => { const u=getUser(p.userId); return `<tr><td><strong>${escapeHtml(u?.name || 'Bilinmeyen Kullanıcı')}</strong><small class="table-sub">${escapeHtml(u?.title || '')}</small></td><td>${p.resetRequestedAt ? new Intl.DateTimeFormat('tr-TR',{dateStyle:'short',timeStyle:'short'}).format(new Date(p.resetRequestedAt)) : '—'}</td><td><button class="btn btn-success btn-sm" onclick="approveLeavePreferenceReset(${p.userId})">Onayla ve Sıfırla</button> <button class="btn btn-danger btn-sm" onclick="rejectLeavePreferenceReset(${p.userId})">Reddet</button></td></tr>`; }).join('');
   const monthCounts = Array.from({length:12},(_,i)=>({month:i,w1:0,w2:0,s1:0,s2:0}));
   preferences.forEach(p => {
     if(p.winterFirstStart) monthCounts[parseISO(p.winterFirstStart).getMonth()].w1++;
@@ -1806,6 +1865,7 @@ function renderLeavePlanning() {
 
   document.getElementById('pageContent').innerHTML=`
     <div class="grid grid-4">${metric('🗓','Planlama yılı',year,'Yıllık genel plan')}${metric('📨','4 tercihi veren',preferences.filter(p=>p.winterFirstStart&&p.winterSecondStart&&p.summerFirstStart&&p.summerSecondStart&&p.status!=='reselect').length+' / '+users.length,'Kış 2 + Yaz 2 tercih')}${metric('📏','Eşzamanlı izin sınırı',capacity+' kişi','Aktif personelin %'+(db.settings.leaveConcurrentPercent||25)+'\'i')}${metric('⭐','Puanlama','Yönetim içi','Personel puanı görmez')}</div>
+    ${isAdmin() ? `<div class="card section-gap"><div class="card-header"><div><h3>🔄 Tercih sıfırlama talepleri</h3><p>Personelin kendi tercihlerini sıfırlama talepleri yalnızca Admin onayıyla uygulanır.</p></div><span class="status ${pendingResetRequests.length?'warning':'success'}">${pendingResetRequests.length ? pendingResetRequests.length+' bekleyen' : 'Bekleyen yok'}</span></div><div class="table-wrap"><table><thead><tr><th>Personel</th><th>Talep zamanı</th><th>İşlem</th></tr></thead><tbody>${resetRequestRows || '<tr><td colspan="3">Bekleyen sıfırlama talebi bulunmuyor.</td></tr>'}</tbody></table></div></div>` : ''}
     <div class="grid grid-2 section-gap">
       <div class="card"><div class="card-header"><div><h3>❄️ Kış dönemi anket özeti</h3><p>10 günlük tercihler · Ocak-Mayıs ve Ekim-Aralık</p></div></div><div class="card-body"><div class="survey-chart survey-chart-season">${winterCharts}</div></div></div>
       <div class="card"><div class="card-header"><div><h3>☀️ Yaz dönemi anket özeti</h3><p>20 günlük tercihler · Haziran-Eylül</p></div></div><div class="card-body"><div class="survey-chart survey-chart-season">${summerCharts}</div></div></div>
@@ -2094,6 +2154,10 @@ function downloadCsv(title) {
 
 function renderSettings() {
   if (!isAdmin()) return goPage('dashboard');
+  const year = db.settings.leavePlanYear;
+  const preferenceOpen = db.settings.leavePreferencesOpen !== false;
+  const yearPreferenceCount = db.leavePreferences.filter(x => x.year === year).length;
+  const pendingResetCount = db.leavePreferences.filter(x => x.year === year && x.resetRequestStatus === 'pending').length;
   document.getElementById('pageContent').innerHTML = `<div class="grid grid-2"><div class="card"><div class="card-header"><div><h3>PBYS sistem ayarları</h3><p>Ortak ayarlar Firestore settings/app belgesine yazılır.</p></div></div><div class="card-body"><form id="settingsForm">
     <label>Sistem adı<input name="systemName" value="${escapeHtml(db.settings.systemName || 'PBYS')}"></label>
     <label class="section-gap">Banka adı<input name="bankName" value="${escapeHtml(db.settings.bankName || '')}"></label>
@@ -2104,12 +2168,33 @@ function renderSettings() {
     <label class="section-gap">Aynı anda izinli azami oran (%)<input name="leaveConcurrentPercent" type="number" min="1" max="100" value="${db.settings.leaveConcurrentPercent || 25}"></label>
     <label class="section-gap">2. tercih kabul puan bonusu<input name="planningSecondChoiceBonus" type="number" min="0" value="${db.settings.planningSecondChoiceBonus ?? 20}"></label>
     <button class="btn btn-primary section-gap">Ayarları Kaydet</button></form></div></div>
-    <div class="card"><div class="card-header"><div><h3>Firebase / Firestore</h3><p>Veriler site üzerinden yönetilir.</p></div></div><div class="card-body"><div class="firebase-card"><strong>Proje: ${escapeHtml(window.FirebaseBridge?.projectId || 'gencservi-5d47e')}</strong><span>Kullanıcı, yemek, izin, yoklama, ödeme, arıza ve çamaşır verileri Firestore koleksiyonlarında tutulur.</span><div class="sync-actions"><button class="btn btn-primary btn-sm" onclick="refreshFromCloud()">Buluttan Yenile</button><button class="btn btn-secondary btn-sm" onclick="exportBackup()">JSON Yedek İndir</button></div></div><p class="form-note section-gap">Test aşamasından sonra Firestore Security Rules rol/yetki sistemine göre kilitlenmelidir.</p></div></div></div>`;
+    <div class="card"><div class="card-header"><div><h3>Firebase / Firestore</h3><p>Veriler site üzerinden yönetilir.</p></div></div><div class="card-body"><div class="firebase-card"><strong>Proje: ${escapeHtml(window.FirebaseBridge?.projectId || 'gencservi-5d47e')}</strong><span>Kullanıcı, yemek, izin, yoklama, ödeme, arıza ve çamaşır verileri Firestore koleksiyonlarında tutulur.</span><div class="sync-actions"><button class="btn btn-primary btn-sm" onclick="refreshFromCloud()">Buluttan Yenile</button><button class="btn btn-secondary btn-sm" onclick="exportBackup()">JSON Yedek İndir</button></div></div><p class="form-note section-gap">Test aşamasından sonra Firestore Security Rules rol/yetki sistemine göre kilitlenmelidir.</p></div></div></div>
+    <div class="card section-gap"><div class="card-header"><div><h3>🗓 Yıllık izin tercih yönetimi</h3><p>${year} yılı tercih ekranını Admin olarak açabilir, kapatabilir veya tüm tercihleri sıfırlayabilirsiniz.</p></div><span class="status ${preferenceOpen ? 'success' : 'danger'}">${preferenceOpen ? 'Tercihler Açık' : 'Tercihler Kapalı'}</span></div><div class="card-body"><div class="grid grid-3">${metric('🔐','Tercih sistemi',preferenceOpen?'Açık':'Kapalı',preferenceOpen?'Personel tercih kaydedebilir':'Personel formu salt okunur')}${metric('📨','Kayıtlı tercih',yearPreferenceCount+' kişi',year+' yılı')}${metric('🔄','Sıfırlama talebi',pendingResetCount+' bekleyen','Onay/ret: Yıllık İzin Anket Sonuçları')}</div><div class="sync-actions section-gap"><button class="btn ${preferenceOpen ? 'btn-warning' : 'btn-success'}" onclick="toggleLeavePreferenceSystem()">${preferenceOpen ? 'Yıllık İzin Tercihlerini Kapat' : 'Yıllık İzin Tercihlerini Aç'}</button><button class="btn btn-danger" onclick="resetAllLeavePreferences()">${year} Tercihlerini Toplu Sıfırla</button>${pendingResetCount ? `<button class="btn btn-secondary" onclick="goPage('leave-planning')">${pendingResetCount} Sıfırlama Talebini İncele</button>` : ''}</div><p class="form-note section-gap">Toplu sıfırlama yalnızca seçili planlama yılının tercihlerini ve o yıla ait planlama sonuçlarını temizler. Personelin bireysel sıfırlama talebi ise Admin onaylanana kadar mevcut tercihi silmez.</p></div></div>`;
   document.getElementById('settingsForm').addEventListener('submit', e => {
     e.preventDefault(); const f=new FormData(e.target);
     db.settings={...db.settings,systemName:f.get('systemName'),bankName:f.get('bankName'),accountName:f.get('accountName'),iban:f.get('iban'),weeklyLaundryLimit:Number(f.get('weeklyLaundryLimit')),leavePlanYear:Number(f.get('leavePlanYear')),leaveConcurrentPercent:Number(f.get('leaveConcurrentPercent')),planningSecondChoiceBonus:Number(f.get('planningSecondChoiceBonus'))};
-    saveDB();toast('Sistem ayarları kaydedildi.');
+    saveDB();renderSettings();toast('Sistem ayarları kaydedildi.');
   });
+}
+function toggleLeavePreferenceSystem() {
+  if (!isAdmin()) return toast('Bu işlemi yalnızca Admin yapabilir.');
+  const next = db.settings.leavePreferencesOpen === false;
+  const action = next ? 'açılsın' : 'kapatılsın';
+  if (!confirm(`${db.settings.leavePlanYear} yıllık izin tercih sistemi ${action} mı?`)) return;
+  db.settings.leavePreferencesOpen = next;
+  logAudit('leave.preference_system', `${db.settings.leavePlanYear} tercih sistemi ${next ? 'açıldı' : 'kapatıldı'}`);
+  saveDB(); renderSettings(); toast(`Yıllık izin tercih sistemi ${next ? 'açıldı' : 'kapatıldı'}.`);
+}
+function resetAllLeavePreferences() {
+  if (!isAdmin()) return toast('Bu işlemi yalnızca Admin yapabilir.');
+  const year = db.settings.leavePlanYear;
+  const count = db.leavePreferences.filter(x => x.year === year).length;
+  if (!count) return toast(`${year} yılı için sıfırlanacak tercih bulunmuyor.`);
+  if (!confirm(`${year} yılına ait ${count} personelin TÜM yıllık izin tercihleri ve planlama sonuçları sıfırlanacak. Bu işlem uygulansın mı?`)) return;
+  db.leavePreferences = db.leavePreferences.filter(x => x.year !== year);
+  db.leavePlanResults = db.leavePlanResults.filter(x => x.year !== year);
+  logAudit('leave.preference_reset_all', `${year}: ${count} personelin yıllık izin tercihleri topluca sıfırlandı`);
+  saveDB(); renderSettings(); toast(`${year} yılı yıllık izin tercihleri topluca sıfırlandı.`);
 }
 function exportBackup() { const blob = new Blob([JSON.stringify(db, null, 2)], { type: 'application/json' }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'gencservi-v6-firestore-yedek.json'; a.click(); URL.revokeObjectURL(a.href); toast('Yedek dosyası indirildi.'); }
 function resetDemo() { refreshFromCloud(); }

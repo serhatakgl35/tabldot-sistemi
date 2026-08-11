@@ -1,56 +1,37 @@
-# PBYS V9.2.1 Hotfix
+# PBYS – Çamaşır Sayacı Güncellemesi
 
-Bu sürüm V9.2 giriş hatasını giderir. Çamaşır makinesi canlı kullanım/kronometre kayıtları artık yeni bir Firestore koleksiyonu istemez; mevcut `laundryReservations` koleksiyonunda `run_` önekli belgeler olarak tutulur. Böylece mevcut Firestore izinleriyle uyumluluk korunur.
+Bu paket, en son PBYS dosya seti temel alınarak hazırlanmıştır.
 
-V9.2 özellikleri korunmuştur.
-
-# PBYS V9.2 — Toplu Güncelleme
-
-Bu sürüm V9.1 temel alınarak son toplu talepler uygulanmıştır.
-
-## Ana Sayfa
-- Karakol Komutanı: **Personel İzinleri → Günlük/Haftalık Faaliyetler → Yemek Menüsü**.
-- Onay bekleyen izin talepleri Personel İzinleri kartında ilk bölümde gösterilir.
-- Normal personel: **Günlük/Haftalık Faaliyetler → Yemek Menüsü**.
-- `hasManagementPermission()` callback hatası düzeltildi; komutan/yönetim ana sayfa sıralaması artık role göre doğru çalışır.
-
-## Yemek Menüsü
-- Ana Sayfa yalnızca menüyü gösterir; oluşturma/düzenleme butonu kaldırıldı.
-- Saat 19:00–23:59 arasında **Yarının Yemek Menüsü**, 00:00–18:59 arasında **Bugünün Yemek Menüsü** gösterilir.
-- `Yemek Yönetimi` ayrı sayfa olarak eklendi.
-- Aşçı rolü otomatik olarak `menu.manage` yetkisine sahiptir.
-- Aşçı olmayan kullanıcıya da `menu.manage` özel yetkisi verilebilir.
-
-## Yoklama
-- Karakol Komutanı rolünden `attendance.manage` kaldırıldı.
-- Yoklama Girişi: Admin, İdari İşler veya özel `attendance.manage` yetkisi olan kullanıcılar.
-- Karakol Komutanı Yoklama Özeti'ni görmeye devam eder.
-
-## Tabldot / Ödeme
-- Tüm personel için salt okunur `Tabldot Bilançosu` sayfası eklendi.
-- Personel giderleri, birim maliyeti, personel hesaplarını ve yıllık izin düşümlerini görebilir.
-- Admin ve Tabldot Sorumlusu ödeme durumunu `Ödenmedi / Kısmi Ödendi / Ödendi` olarak elle düzeltebilir.
-- Ödeme bildirimini onaylama/reddetme Admin ve Tabldot Sorumlusuna sınırlandı.
-- Yıllık izin PDF önizlemesinde mobilde personel adı ilk sütunda sabit görünür.
-
-## Çamaşırhane
-- Randevu sistemi korunmuştur.
-- Her makine için `Makineyi Başlat` + dakika girişi eklendi.
-- Tüm kullanıcılar makinede kimin çamaşırının olduğunu, başlangıç/bitiş saatini ve canlı kalan süreyi görür.
-- Süre bitince `Tamamlandı / Çamaşır bekliyor` durumu oluşur.
-- Çamaşır sahibi veya yetkili `Makineyi Boşalttım` diyerek makineyi tekrar müsait yapar.
-- Tarayıcı bildirim izni açıldığında süre sonunda `Çamaşır makinesi tamamlandı` bildirimi gösterilir.
-- Yeni Firestore koleksiyonu: `laundryRuns`.
-- `sw.js` service worker eklendi.
-
-> Not: Mevcut tarayıcı bildirimi uygulama/sekme çalışırken güvenilir şekilde tetiklenir. Tarayıcı tamamen kapalıyken kesin zamanlı push için ayrıca Firebase Cloud Messaging + güvenli sunucu/Cloud Function kurulumu gerekir.
+## Değişiklikler
+- “Çamaşır Randevusu” menü adı “Çamaşır Sayacı” olarak değiştirildi.
+- Saatlik/günlük randevu tablosu ve “Randevu Al” işlemleri arayüzden tamamen kaldırıldı.
+- Çamaşır sayacı/makine kullanım kartları bırakıldı.
+- Sayacı başlatan kullanıcı çalışan sayacı durdurabilir.
+- Sayacı başlatan kullanıcı çalışan, durdurulmuş veya tamamlanmış sayacı sıfırlayabilir.
+- Başka kullanıcılar başkasının sayacını durduramaz veya sıfırlayamaz.
+- Durdurulan sayaç kalan süreyi sabit olarak gösterir.
+- Sıfırlama sonrası makine yeniden kullanılabilir hale gelir.
+- Çamaşır raporu yalnızca sayaç kullanım kayıtlarını gösterir; randevu kayıtları yeni rapora dahil edilmez.
+- Eski Firestore randevu verileri silinmez; yalnızca yeni arayüzde kullanılmaz.
 
 ## Yükleme
-GitHub deposundaki aşağıdaki dosyaları birlikte güncelleyin:
-- `index.html`
-- `styles.css`
-- `app.js`
-- `firebase.js`
-- `sw.js`
+GitHub/deploy ana dizinindeki aşağıdaki dosyaları bu pakettekilerle değiştirin:
+- index.html
+- app.js
+- styles.css
+- firebase.js
+- sw.js
 
-`index.html` cache parametreleri V9.2 olarak güncellenmiştir.
+Tarayıcı önbelleği için dosya sürüm parametreleri 9.2.4 olarak güncellenmiştir.
+
+
+## V9.2.5 – Yıllık İzin Tercih Yönetimi
+- Admin, Sistem Ayarları ekranından yıllık izin tercihlerini açıp kapatabilir.
+- Sistem kapalıyken personel mevcut tercihini görür ancak yeni kayıt/güncelleme yapamaz.
+- Admin, seçili planlama yılındaki tüm tercihleri ve plan sonuçlarını topluca sıfırlayabilir.
+- Personel kendi tercihi için “Sıfırlama Talebi Gönder” işlemini kullanabilir.
+- Personel talebi doğrudan tercihi silmez; mevcut tercih Admin kararına kadar korunur.
+- Admin, Yıllık İzin Anket Sonuçları ekranından talebi “Onayla ve Sıfırla” veya “Reddet” ile sonuçlandırır.
+- Onaylanan bireysel sıfırlamada yalnızca ilgili personelin seçili yıla ait tercihi ve plan sonucu temizlenir.
+
+Tarayıcı önbellek sürümü 9.2.5 olarak güncellenmiştir.
