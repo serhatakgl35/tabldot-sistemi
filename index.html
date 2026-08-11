@@ -3,26 +3,32 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="theme-color" content="#0f172a" />
+  <meta name="theme-color" content="#0b1220" />
+  <meta name="color-scheme" content="light" />
+  <meta name="description" content="PBYS - Personel Bilgi Yönetim Sistemi" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='18' fill='%230d9488'/%3E%3Cpath d='M17 18h17c9 0 14 4 14 11 0 4-2 7-5 9 4 2 6 5 6 10 0 8-6 12-16 12H17V18zm12 9v8h6c3 0 5-1 5-4s-2-4-5-4h-6zm0 16v8h7c4 0 6-1 6-4s-2-4-6-4h-7z' fill='white'/%3E%3C/svg%3E" />
   <title>PBYS - Personel Bilgi Yönetim Sistemi</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=8.7" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css?v=9.0" />
 </head>
 <body>
   <div id="toast" class="toast" aria-live="polite"></div>
 
   <section id="authView" class="auth-shell">
     <div class="auth-brand">
-      <div class="brand-mark">PBYS</div>
-      <div>
+      <div class="brand-mark">PB</div>
+      <div class="auth-brand-copy">
+        <span class="auth-eyebrow">Kurumsal Personel Operasyon Platformu</span>
         <h1>PBYS</h1>
         <p><strong>Personel Bilgi Yönetim Sistemi</strong></p>
+        <div class="auth-brand-points"><span>Merkezi yönetim</span><span>Yetki tabanlı erişim</span><span>Canlı veri</span></div>
       </div>
     </div>
 
     <div class="auth-card">
+      <div class="auth-card-intro"><span class="auth-card-kicker">PBYS GÜVENLİ ERİŞİM</span><h2>Hoş geldiniz</h2><p>Yetkili hesabınızla sisteme giriş yapın.</p></div>
       <div class="auth-tabs">
         <button class="auth-tab active" data-auth-tab="login">Giriş Yap</button>
         <button class="auth-tab" data-auth-tab="register">Kayıt Ol</button>
@@ -74,6 +80,7 @@
         <div>
           <strong>PBYS</strong>
           <span>Personel Bilgi Yönetim Sistemi</span>
+          <small>Kurumsal Yönetim Portalı</small>
         </div>
       </div>
 
@@ -121,7 +128,7 @@
     </div>
   </div>
 
-  <script type="module" src="firebase.js?v=8.8"></script>
-  <script src="app.js?v=8.8"></script>
+  <script type="module" src="firebase.js?v=9.0"></script>
+  <script src="app.js?v=9.0"></script>
 </body>
 </html>
