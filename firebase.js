@@ -15,7 +15,6 @@ import {
   getDocs,
   query,
   limit,
-  where,
   doc,
   getDoc,
   setDoc,
@@ -72,52 +71,6 @@ const COLLECTIONS = {
 let lastMaps = null;
 let realtimeUnsubs = [];
 let realtimeTimer = null;
-let activeProfile = null;
-let activeAccessSignature = '';
-
-const ROLE_PERMISSIONS = {
-  staff: [],
-  cook: ['kitchen.view'],
-  tabldot: ['meal.manage','finance.manage','reports.view'],
-  administrative: ['personnel.view','attendance.view','attendance.manage','leave.view','leave.manage','meal.manage','finance.manage','reports.view'],
-  commander: ['personnel.view','attendance.view','leave.view','leave.approve','leave.plan','reports.view'],
-  admin: ['*']
-};
-
-function profileRoles(profile) {
-  if (!profile) return [];
-  return Array.isArray(profile.roles) && profile.roles.length ? profile.roles : [profile.role || 'staff'];
-}
-function profileHasRole(profile, role) { return profileRoles(profile).includes(role); }
-function profileHasPermission(profile, permission) {
-  if (!profile) return false;
-  if (profileHasRole(profile, 'admin')) return true;
-  const permissions = new Set(profile.extraPermissions || []);
-  profileRoles(profile).forEach(role => (ROLE_PERMISSIONS[role] || []).forEach(p => permissions.add(p)));
-  return permissions.has(permission);
-}
-function accessSignature(profile) {
-  return JSON.stringify({ roles: profileRoles(profile).slice().sort(), extra: (profile?.extraPermissions || []).slice().sort(), id: profile?.id, approved: profile?.approved, rejected: profile?.rejected });
-}
-function requireAuth() {
-  if (!auth.currentUser) throw new Error('Oturum bulunamadı. Lütfen yeniden giriş yapın.');
-}
-function requireApprovedProfile(profile) {
-  requireAuth();
-  if (!profile || profile.uid !== auth.currentUser.uid) throw new Error('Kullanıcı profili doğrulanamadı.');
-  if (!profile.approved || profile.rejected) throw new Error(profile.rejected ? 'Üyelik başvurunuz reddedildi.' : 'Üyeliğiniz henüz yönetici tarafından onaylanmadı.');
-}
-function canReadAllUsers(profile) {
-  return ['personnel.view','leave.view','leave.plan','attendance.view','finance.manage','meal.manage','kitchen.view','laundry.manage'].some(p => profileHasPermission(profile, p));
-}
-function canReadAllMeals(profile) { return profileHasPermission(profile, 'meal.manage') || profileHasPermission(profile, 'kitchen.view'); }
-function canReadFinance(profile) { return profileHasPermission(profile, 'finance.manage'); }
-function canReadAllLeaves(profile) { return profileHasPermission(profile, 'leave.view') || profileHasPermission(profile, 'leave.manage') || profileHasPermission(profile, 'leave.approve') || profileHasPermission(profile, 'leave.plan'); }
-function canReadAnnualLeaveForOperations(profile) { return profileHasPermission(profile, 'kitchen.view') || profileHasPermission(profile, 'finance.manage'); }
-function canReadAllPreferences(profile) { return profileHasPermission(profile, 'leave.plan'); }
-function canReadAllAttendance(profile) { return profileHasPermission(profile, 'attendance.view') || profileHasPermission(profile, 'attendance.manage'); }
-function canReadAudits(profile) { return profileHasRole(profile, 'admin'); }
-
 
 function clean(value) {
   if (Array.isArray(value)) return value.map(clean);
@@ -153,17 +106,11 @@ async function ensureSettings() {
 }
 
 async function hasAnyUsers() {
-  requireAuth();
-  const profile = await getUserProfile(auth.currentUser.uid);
-  if (!profileHasRole(profile, 'admin')) throw new Error('Bu işlem yalnızca Admin tarafından yapılabilir.');
   const snap = await getDocs(query(collection(firestore, 'users'), limit(1)));
   return !snap.empty;
 }
 
 async function hasAnyAdmin() {
-  requireAuth();
-  const profile = await getUserProfile(auth.currentUser.uid);
-  if (!profileHasRole(profile, 'admin')) throw new Error('Bu işlem yalnızca Admin tarafından yapılabilir.');
   const snap = await getDocs(collection(firestore, 'users'));
   return snap.docs.some(d => {
     const data = d.data() || {};
@@ -187,8 +134,40 @@ async function createProfile(uid, profile) {
   return payload;
 }
 
-async function bootstrapAdmin() {
-  throw new Error('Güvenli üretim sürümünde ilk Admin oluşturma ekranı devre dışıdır. Mevcut Admin hesabıyla giriş yapın.');
+async function bootstrapAdmin({ name, phone, title, password }) {
+  if (await hasAnyAdmin()) throw new Error('Sistemde zaten bir admin hesabı bulunuyor.');
+
+  let cred;
+  try {
+    cred = await createUserWithEmailAndPassword(auth, phoneToEmail(phone), password);
+  } catch (error) {
+    if (error?.code !== 'auth/email-already-in-use') throw error;
+    // Kullanıcı daha önce Kayıt Ol ekranından hesap açtıysa aynı telefon/şifreyle
+    // mevcut Authentication hesabını ilk admin olarak yükselt.
+    cred = await signInWithEmailAndPassword(auth, phoneToEmail(phone), password);
+  }
+
+  const existing = await getUserProfile(cred.user.uid);
+  const profile = await createProfile(cred.user.uid, {
+    ...(existing || {}),
+    id: existing?.id || 1,
+    name: name || existing?.name || 'Sistem Yöneticisi',
+    phone,
+    title: title || existing?.title || 'Sistem Yöneticisi',
+    role: 'admin',
+    roles: Array.from(new Set([...(existing?.roles || ['staff']), 'staff', 'admin'])),
+    extraPermissions: existing?.extraPermissions || [],
+    approved: true,
+    rejected: false,
+    annualAllowance: existing?.annualAllowance ?? 30,
+    roadAllowance: existing?.roadAllowance ?? 2,
+    usedLeave: existing?.usedLeave ?? 0,
+    usedRoadLeave: existing?.usedRoadLeave ?? 0,
+    planningScore: existing?.planningScore ?? 50,
+    planningScoreNote: existing?.planningScoreNote || ''
+  });
+  await ensureSettings();
+  return profile;
 }
 
 async function registerPending({ name, phone, title, password }) {
@@ -252,49 +231,9 @@ async function changePassword(newPassword) {
   await updatePassword(auth.currentUser, newPassword);
 }
 
-async function collectionData(name, source = null) {
-  requireAuth();
-  const snap = await getDocs(source || collection(firestore, name));
+async function collectionData(name) {
+  const snap = await getDocs(collection(firestore, name));
   return snap.docs.map(d => ({ ...d.data(), _docId: d.id }));
-}
-
-function ownQuery(name, profile) {
-  return query(collection(firestore, name), where('userId', '==', Number(profile.id)));
-}
-function approvedUsersQuery() {
-  return query(collection(firestore, COLLECTIONS.users), where('approved', '==', true));
-}
-function approvedAnnualLeaveQuery() {
-  return query(collection(firestore, COLLECTIONS.leaveRequests), where('status', '==', 'approved'), where('type', '==', 'Yıllık İzin'));
-}
-
-async function getSettingsForProfile(profile) {
-  requireApprovedProfile(profile);
-  const ref = doc(firestore, 'settings', 'app');
-  const snap = await getDoc(ref);
-  if (snap.exists()) return snap.data();
-  if (profileHasRole(profile, 'admin')) return await ensureSettings();
-  return DEFAULT_SETTINGS;
-}
-
-function usersSource(profile) {
-  if (profileHasPermission(profile, 'personnel.view') || profileHasPermission(profile, 'leave.view') || profileHasPermission(profile, 'leave.plan') || profileHasPermission(profile, 'attendance.view')) return collection(firestore, COLLECTIONS.users);
-  if (canReadAllUsers(profile)) return approvedUsersQuery();
-  return doc(firestore, COLLECTIONS.users, profile.uid);
-}
-
-function leaveSource(profile) {
-  if (canReadAllLeaves(profile)) return collection(firestore, COLLECTIONS.leaveRequests);
-  if (canReadAnnualLeaveForOperations(profile)) return approvedAnnualLeaveQuery();
-  return ownQuery(COLLECTIONS.leaveRequests, profile);
-}
-
-async function dataFromSource(name, source) {
-  if (source?.type === 'document') {
-    const snap = await getDoc(source);
-    return snap.exists() ? [{ ...snap.data(), _docId: snap.id }] : [];
-  }
-  return collectionData(name, source);
 }
 
 function emptyState(settings = DEFAULT_SETTINGS) {
@@ -386,49 +325,32 @@ async function saveState(state) {
 }
 
 async function currentCloudMaps() {
-  if (!activeProfile) {
-    requireAuth();
-    activeProfile = await getUserProfile(auth.currentUser.uid);
-  }
-  const state = await loadState(activeProfile, false);
+  const state = await loadState(false);
   return stateToMaps(state);
 }
 
-async function loadState(profile, updateSnapshot = true) {
-  requireApprovedProfile(profile);
-  activeProfile = profile;
-  activeAccessSignature = accessSignature(profile);
-  const settings = await getSettingsForProfile(profile);
-  const state = emptyState(settings);
-
-  const userSource = usersSource(profile);
-  const mealSource = canReadAllMeals(profile) ? collection(firestore, COLLECTIONS.mealChoices) : ownQuery(COLLECTIONS.mealChoices, profile);
-  const paymentSource = canReadFinance(profile) ? collection(firestore, COLLECTIONS.payments) : ownQuery(COLLECTIONS.payments, profile);
-  const debtSource = canReadFinance(profile) ? collection(firestore, COLLECTIONS.debts) : ownQuery(COLLECTIONS.debts, profile);
-  const leaveReqSource = leaveSource(profile);
-  const prefSource = canReadAllPreferences(profile) ? collection(firestore, COLLECTIONS.leavePreferences) : ownQuery(COLLECTIONS.leavePreferences, profile);
-  const planSource = canReadAllPreferences(profile) ? collection(firestore, COLLECTIONS.leavePlanResults) : ownQuery(COLLECTIONS.leavePlanResults, profile);
-  const attendanceSource = canReadAllAttendance(profile) ? collection(firestore, COLLECTIONS.attendance) : ownQuery(COLLECTIONS.attendance, profile);
+async function loadState(updateSnapshot = true) {
+  const settingsSnap = await getDoc(doc(firestore, 'settings', 'app'));
+  const state = emptyState(settingsSnap.exists() ? settingsSnap.data() : await ensureSettings());
 
   const [users, meals, expenses, payments, debts, leaves, prefs, plans, laundry, laundryFaults, attendance, audits, activities, menus] = await Promise.all([
-    dataFromSource(COLLECTIONS.users, userSource),
-    dataFromSource(COLLECTIONS.mealChoices, mealSource),
-    canReadFinance(profile) ? collectionData(COLLECTIONS.expenses) : Promise.resolve([]),
-    dataFromSource(COLLECTIONS.payments, paymentSource),
-    dataFromSource(COLLECTIONS.debts, debtSource),
-    dataFromSource(COLLECTIONS.leaveRequests, leaveReqSource),
-    dataFromSource(COLLECTIONS.leavePreferences, prefSource),
-    dataFromSource(COLLECTIONS.leavePlanResults, planSource),
+    collectionData(COLLECTIONS.users),
+    collectionData(COLLECTIONS.mealChoices),
+    collectionData(COLLECTIONS.expenses),
+    collectionData(COLLECTIONS.payments),
+    collectionData(COLLECTIONS.debts),
+    collectionData(COLLECTIONS.leaveRequests),
+    collectionData(COLLECTIONS.leavePreferences),
+    collectionData(COLLECTIONS.leavePlanResults),
     collectionData(COLLECTIONS.laundry),
     collectionData(COLLECTIONS.laundryFaults),
-    dataFromSource(COLLECTIONS.attendance, attendanceSource),
-    canReadAudits(profile) ? collectionData(COLLECTIONS.auditLogs) : Promise.resolve([]),
+    collectionData(COLLECTIONS.attendance),
+    collectionData(COLLECTIONS.auditLogs),
     collectionData(COLLECTIONS.weeklyActivities),
     collectionData(COLLECTIONS.dailyMenus)
   ]);
 
   state.users = users.map(x => ({ ...x, uid: x.uid || x._docId })).map(({ _docId, ...x }) => x);
-  if (!state.users.some(u => u.uid === profile.uid)) state.users.push({ ...profile });
   meals.forEach(({ _docId, userId, date, breakfast = '', dinner = '' }) => {
     state.mealSelections[userId] ||= {};
     state.mealSelections[userId][date] = { breakfast, dinner };
@@ -457,52 +379,22 @@ function stopRealtime() {
   if (realtimeTimer) clearTimeout(realtimeTimer);
 }
 
-function realtimeSources(profile) {
-  const sources = [
-    doc(firestore, 'settings', 'app'),
-    usersSource(profile),
-    canReadAllMeals(profile) ? collection(firestore, COLLECTIONS.mealChoices) : ownQuery(COLLECTIONS.mealChoices, profile),
-    canReadFinance(profile) ? collection(firestore, COLLECTIONS.payments) : ownQuery(COLLECTIONS.payments, profile),
-    canReadFinance(profile) ? collection(firestore, COLLECTIONS.debts) : ownQuery(COLLECTIONS.debts, profile),
-    leaveSource(profile),
-    canReadAllPreferences(profile) ? collection(firestore, COLLECTIONS.leavePreferences) : ownQuery(COLLECTIONS.leavePreferences, profile),
-    canReadAllPreferences(profile) ? collection(firestore, COLLECTIONS.leavePlanResults) : ownQuery(COLLECTIONS.leavePlanResults, profile),
-    collection(firestore, COLLECTIONS.laundry),
-    collection(firestore, COLLECTIONS.laundryFaults),
-    canReadAllAttendance(profile) ? collection(firestore, COLLECTIONS.attendance) : ownQuery(COLLECTIONS.attendance, profile),
-    collection(firestore, COLLECTIONS.weeklyActivities),
-    collection(firestore, COLLECTIONS.dailyMenus)
-  ];
-  if (canReadFinance(profile)) sources.push(collection(firestore, COLLECTIONS.expenses));
-  if (canReadAudits(profile)) sources.push(collection(firestore, COLLECTIONS.auditLogs));
-  return sources;
-}
-
-function startRealtime(profile, callback) {
-  requireApprovedProfile(profile);
+function startRealtime(callback) {
   stopRealtime();
-  activeProfile = profile;
-  activeAccessSignature = accessSignature(profile);
+  const names = [...Object.values(COLLECTIONS), 'settings'];
   const schedule = snap => {
     if (snap?.metadata?.hasPendingWrites) return;
     clearTimeout(realtimeTimer);
     realtimeTimer = setTimeout(async () => {
       try {
-        const freshProfile = await getUserProfile(auth.currentUser.uid);
-        if (!freshProfile?.approved || freshProfile?.rejected) {
-          await signOutUser();
-          return;
-        }
-        const previousSignature = activeAccessSignature;
-        const state = await loadState(freshProfile, true);
+        const state = await loadState(true);
         callback(state);
-        if (accessSignature(freshProfile) !== previousSignature) startRealtime(freshProfile, callback);
       } catch (error) {
         console.error('Realtime refresh error', error);
       }
     }, 350);
   };
-  realtimeSources(profile).forEach(source => realtimeUnsubs.push(onSnapshot(source, schedule, error => console.error('PBYS listener', error))));
+  names.forEach(name => realtimeUnsubs.push(onSnapshot(collection(firestore, name), schedule, error => console.error(`Listener ${name}`, error))));
   return stopRealtime;
 }
 
