@@ -270,6 +270,7 @@ async function bootFirebase() {
 }
 async function enterAuthenticatedApp(profile) {
   setCloudStatus('', 'Veriler yükleniyor');
+  window.FirebaseBridge.setAccessProfile(profile);
   const cloudState = await window.FirebaseBridge.loadState();
   applyCloudState(cloudState, false);
   const freshProfile = db.users.find(u => u.uid === profile.uid) || profile;
@@ -277,6 +278,7 @@ async function enterAuthenticatedApp(profile) {
     await window.FirebaseBridge.signOut();
     throw new Error(freshProfile.rejected ? 'Üyelik başvurunuz reddedildi.' : 'Üyeliğiniz henüz onaylanmadı.');
   }
+  window.FirebaseBridge.setAccessProfile(freshProfile);
   login(freshProfile);
   window.FirebaseBridge.startRealtime(nextState => applyCloudState(nextState, true));
   setCloudStatus('online', 'Firestore bağlı');
@@ -365,6 +367,7 @@ function login(user) {
 }
 async function logout() {
   try { window.FirebaseBridge?.stopRealtime(); await window.FirebaseBridge?.signOut(); } catch (_) {}
+  window.FirebaseBridge?.setAccessProfile?.(null);
   currentUser = null;
   document.getElementById('appView').classList.add('hidden');
   document.getElementById('authView').classList.remove('hidden');
