@@ -41,7 +41,7 @@ const rolePermissions = {
   cook: ['kitchen.view','menu.manage'],
   tabldot: ['meal.manage','finance.manage','reports.view'],
   administrative: ['personnel.view','attendance.view','attendance.manage','leave.view','leave.manage','meal.manage','finance.manage','reports.view'],
-  commander: ['personnel.view','attendance.view','leave.view','leave.approve','leave.plan','reports.view'],
+  commander: ['personnel.view','attendance.view','leave.view','leave.approve','leave.plan','leave.preference.manage','reports.view'],
   admin: ['*']
 };
 const mealNames = { breakfast: 'Sabah', dinner: 'Akşam' };
@@ -210,6 +210,7 @@ function hasCookPermission() { return hasPermission('kitchen.view'); }
 function canEditPaymentStatus() { return isAdmin() || hasRole('tabldot'); }
 function hasDashboardEditorPermission() { return hasPermission('activity.manage') || hasPermission('menu.manage'); }
 function isAdmin() { return hasRole('admin'); }
+function canManageLeavePreferences() { return hasPermission('leave.preference.manage'); }
 function userRoleLabels(user = currentUser) { return userRoles(user).map(r => roleNames[r] || r).join(' + '); }
 function logAudit(action, details) { db.auditLogs ||= []; db.auditLogs.unshift({ id: Date.now() + Math.random(), at: new Date().toISOString(), userId: currentUser?.id || null, action, details }); db.auditLogs = db.auditLogs.slice(0, 500); }
 function approvedUsers() { return db.users.filter(u => u.approved && !u.rejected); }
@@ -1019,7 +1020,7 @@ function roleModal(userId) {
   const permissionLabels = {
     'personnel.view':'Personel listesini gör','attendance.view':'Yoklama özetini gör','attendance.manage':'Yoklama girişi yap',
     'leave.view':'Tüm izinleri gör','leave.manage':'İzin kaydı ekle/düzenle','leave.approve':'İzin taleplerini onayla','leave.plan':'Yıllık izin planlamasını yönet',
-    'meal.manage':'Tabldot yemek yönetimini gör','finance.manage':'Tabldot bilançosunu yönet','kitchen.view':'Aşçı ekranını gör','activity.manage':'Haftalık faaliyetleri ekle/düzenle','menu.manage':'Günlük yemek menüsünü ekle/düzenle','laundry.manage':'Çamaşır/arızaları yönet','reports.view':'Raporları gör'
+    'meal.manage':'Tabldot yemek yönetimini gör','finance.manage':'Tabldot bilançosunu yönet','kitchen.view':'Aşçı ekranını gör','activity.manage':'Haftalık faaliyetleri ekle/düzenle','menu.manage':'Günlük yemek menüsünü ekle/düzenle','laundry.manage':'Çamaşır/arızaları yönet','leave.preference.manage':'Yıllık izin tercih sistemini yönet','reports.view':'Raporları gör'
   };
   showModal(`${user.name} · Rol ve Yetki`, `<form id="roleForm">
     <p class="form-note">Bir kullanıcıya birden fazla rol verilebilir. Son admin hesabının admin yetkisi kaldırılamaz.</p>
@@ -1789,18 +1790,18 @@ function requestOwnLeavePreferenceReset() {
   const year = db.settings.leavePlanYear;
   const preference = db.leavePreferences.find(x => x.userId === currentUser.id && x.year === year);
   if (!preference) return toast('Sıfırlanacak yıllık izin tercihiniz bulunmuyor.');
-  if (preference.resetRequestStatus === 'pending') return toast('Sıfırlama talebiniz zaten Admin onayı bekliyor.');
-  if (!confirm(`${year} yılı yıllık izin tercihlerinizin sıfırlanması için Admin onayına talep gönderilsin mi?`)) return;
+  if (preference.resetRequestStatus === 'pending') return toast('Sıfırlama talebiniz zaten yönetim onayı bekliyor.');
+  if (!confirm(`${year} yılı yıllık izin tercihlerinizin sıfırlanması için Admin / Karakol Komutanı onayına talep gönderilsin mi?`)) return;
   preference.resetRequestStatus = 'pending';
   preference.resetRequestedAt = new Date().toISOString();
   preference.resetRequestedBy = currentUser.id;
   delete preference.resetReviewedAt;
   delete preference.resetReviewedBy;
   logAudit('leave.preference_reset_request', `${currentUser.name}: ${year} yıllık izin tercihi sıfırlama talebi gönderdi`);
-  saveDB(); renderMyLeavePreference(); toast('Sıfırlama talebiniz Admin onayına gönderildi.');
+  saveDB(); renderMyLeavePreference(); toast('Sıfırlama talebiniz Admin / Karakol Komutanı onayına gönderildi.');
 }
 function approveLeavePreferenceReset(userId) {
-  if (!isAdmin()) return toast('Bu işlemi yalnızca Admin yapabilir.');
+  if (!canManageLeavePreferences()) return toast('Bu işlem için yıllık izin tercih yönetimi yetkiniz yok.');
   userId = Number(userId);
   const year = db.settings.leavePlanYear;
   const preference = db.leavePreferences.find(x => x.userId === userId && x.year === year && x.resetRequestStatus === 'pending');
@@ -1813,7 +1814,7 @@ function approveLeavePreferenceReset(userId) {
   saveDB(); renderLeavePlanning(); toast('Personelin yıllık izin tercihleri sıfırlandı.');
 }
 function rejectLeavePreferenceReset(userId) {
-  if (!isAdmin()) return toast('Bu işlemi yalnızca Admin yapabilir.');
+  if (!canManageLeavePreferences()) return toast('Bu işlem için yıllık izin tercih yönetimi yetkiniz yok.');
   userId = Number(userId);
   const year = db.settings.leavePlanYear;
   const preference = db.leavePreferences.find(x => x.userId === userId && x.year === year && x.resetRequestStatus === 'pending');
@@ -1836,6 +1837,8 @@ function renderLeavePlanning() {
   const results = db.leavePlanResults.filter(x => x.year === year).map(normalizeLeavePlanResult);
   const capacity = concurrentLeaveCapacity();
   const pendingResetRequests = preferences.filter(p => p.resetRequestStatus === 'pending');
+  const preferenceOpen = db.settings.leavePreferencesOpen !== false;
+  const canManagePreferences = canManageLeavePreferences();
   const resetRequestRows = pendingResetRequests.map(p => { const u=getUser(p.userId); return `<tr><td><strong>${escapeHtml(u?.name || 'Bilinmeyen Kullanıcı')}</strong><small class="table-sub">${escapeHtml(u?.title || '')}</small></td><td>${p.resetRequestedAt ? new Intl.DateTimeFormat('tr-TR',{dateStyle:'short',timeStyle:'short'}).format(new Date(p.resetRequestedAt)) : '—'}</td><td><button class="btn btn-success btn-sm" onclick="approveLeavePreferenceReset(${p.userId})">Onayla ve Sıfırla</button> <button class="btn btn-danger btn-sm" onclick="rejectLeavePreferenceReset(${p.userId})">Reddet</button></td></tr>`; }).join('');
   const monthCounts = Array.from({length:12},(_,i)=>({month:i,w1:0,w2:0,s1:0,s2:0}));
   preferences.forEach(p => {
@@ -1865,7 +1868,7 @@ function renderLeavePlanning() {
 
   document.getElementById('pageContent').innerHTML=`
     <div class="grid grid-4">${metric('🗓','Planlama yılı',year,'Yıllık genel plan')}${metric('📨','4 tercihi veren',preferences.filter(p=>p.winterFirstStart&&p.winterSecondStart&&p.summerFirstStart&&p.summerSecondStart&&p.status!=='reselect').length+' / '+users.length,'Kış 2 + Yaz 2 tercih')}${metric('📏','Eşzamanlı izin sınırı',capacity+' kişi','Aktif personelin %'+(db.settings.leaveConcurrentPercent||25)+'\'i')}${metric('⭐','Puanlama','Yönetim içi','Personel puanı görmez')}</div>
-    ${isAdmin() ? `<div class="card section-gap"><div class="card-header"><div><h3>🔄 Tercih sıfırlama talepleri</h3><p>Personelin kendi tercihlerini sıfırlama talepleri yalnızca Admin onayıyla uygulanır.</p></div><span class="status ${pendingResetRequests.length?'warning':'success'}">${pendingResetRequests.length ? pendingResetRequests.length+' bekleyen' : 'Bekleyen yok'}</span></div><div class="table-wrap"><table><thead><tr><th>Personel</th><th>Talep zamanı</th><th>İşlem</th></tr></thead><tbody>${resetRequestRows || '<tr><td colspan="3">Bekleyen sıfırlama talebi bulunmuyor.</td></tr>'}</tbody></table></div></div>` : ''}
+    ${canManagePreferences ? `<div class="card section-gap"><div class="card-header"><div><h3>🗓 Yıllık izin tercih yönetimi</h3><p>Admin ve Karakol Komutanı tercih sistemini açıp kapatabilir, toplu sıfırlama yapabilir ve personel sıfırlama taleplerini sonuçlandırabilir.</p></div><span class="status ${preferenceOpen ? 'success' : 'danger'}">${preferenceOpen ? 'Tercihler Açık' : 'Tercihler Kapalı'}</span></div><div class="card-body"><div class="grid grid-3">${metric('🔐','Tercih sistemi',preferenceOpen?'Açık':'Kapalı',preferenceOpen?'Personel tercih kaydedebilir':'Personel formu salt okunur')}${metric('📨','Kayıtlı tercih',preferences.length+' kişi',year+' yılı')}${metric('🔄','Sıfırlama talebi',pendingResetRequests.length+' bekleyen','Admin / Karakol Komutanı onayı')}</div><div class="sync-actions section-gap"><button class="btn ${preferenceOpen ? 'btn-warning' : 'btn-success'}" onclick="toggleLeavePreferenceSystem()">${preferenceOpen ? 'Yıllık İzin Tercihlerini Kapat' : 'Yıllık İzin Tercihlerini Aç'}</button><button class="btn btn-danger" onclick="resetAllLeavePreferences()">${year} Tercihlerini Toplu Sıfırla</button></div><p class="form-note section-gap">Bu yetkiler yalnızca yıllık izin tercih yönetimi içindir; Karakol Komutanına diğer Admin sistem ayarları açılmaz.</p></div></div><div class="card section-gap"><div class="card-header"><div><h3>🔄 Tercih sıfırlama talepleri</h3><p>Personelin kendi tercihlerini sıfırlama talepleri Admin veya Karakol Komutanı onayıyla uygulanır.</p></div><span class="status ${pendingResetRequests.length?'warning':'success'}">${pendingResetRequests.length ? pendingResetRequests.length+' bekleyen' : 'Bekleyen yok'}</span></div><div class="table-wrap"><table><thead><tr><th>Personel</th><th>Talep zamanı</th><th>İşlem</th></tr></thead><tbody>${resetRequestRows || '<tr><td colspan="3">Bekleyen sıfırlama talebi bulunmuyor.</td></tr>'}</tbody></table></div></div>` : ''}
     <div class="grid grid-2 section-gap">
       <div class="card"><div class="card-header"><div><h3>❄️ Kış dönemi anket özeti</h3><p>10 günlük tercihler · Ocak-Mayıs ve Ekim-Aralık</p></div></div><div class="card-body"><div class="survey-chart survey-chart-season">${winterCharts}</div></div></div>
       <div class="card"><div class="card-header"><div><h3>☀️ Yaz dönemi anket özeti</h3><p>20 günlük tercihler · Haziran-Eylül</p></div></div><div class="card-body"><div class="survey-chart survey-chart-season">${summerCharts}</div></div></div>
@@ -2169,7 +2172,7 @@ function renderSettings() {
     <label class="section-gap">2. tercih kabul puan bonusu<input name="planningSecondChoiceBonus" type="number" min="0" value="${db.settings.planningSecondChoiceBonus ?? 20}"></label>
     <button class="btn btn-primary section-gap">Ayarları Kaydet</button></form></div></div>
     <div class="card"><div class="card-header"><div><h3>Firebase / Firestore</h3><p>Veriler site üzerinden yönetilir.</p></div></div><div class="card-body"><div class="firebase-card"><strong>Proje: ${escapeHtml(window.FirebaseBridge?.projectId || 'gencservi-5d47e')}</strong><span>Kullanıcı, yemek, izin, yoklama, ödeme, arıza ve çamaşır verileri Firestore koleksiyonlarında tutulur.</span><div class="sync-actions"><button class="btn btn-primary btn-sm" onclick="refreshFromCloud()">Buluttan Yenile</button><button class="btn btn-secondary btn-sm" onclick="exportBackup()">JSON Yedek İndir</button></div></div><p class="form-note section-gap">Test aşamasından sonra Firestore Security Rules rol/yetki sistemine göre kilitlenmelidir.</p></div></div></div>
-    <div class="card section-gap"><div class="card-header"><div><h3>🗓 Yıllık izin tercih yönetimi</h3><p>${year} yılı tercih ekranını Admin olarak açabilir, kapatabilir veya tüm tercihleri sıfırlayabilirsiniz.</p></div><span class="status ${preferenceOpen ? 'success' : 'danger'}">${preferenceOpen ? 'Tercihler Açık' : 'Tercihler Kapalı'}</span></div><div class="card-body"><div class="grid grid-3">${metric('🔐','Tercih sistemi',preferenceOpen?'Açık':'Kapalı',preferenceOpen?'Personel tercih kaydedebilir':'Personel formu salt okunur')}${metric('📨','Kayıtlı tercih',yearPreferenceCount+' kişi',year+' yılı')}${metric('🔄','Sıfırlama talebi',pendingResetCount+' bekleyen','Onay/ret: Yıllık İzin Anket Sonuçları')}</div><div class="sync-actions section-gap"><button class="btn ${preferenceOpen ? 'btn-warning' : 'btn-success'}" onclick="toggleLeavePreferenceSystem()">${preferenceOpen ? 'Yıllık İzin Tercihlerini Kapat' : 'Yıllık İzin Tercihlerini Aç'}</button><button class="btn btn-danger" onclick="resetAllLeavePreferences()">${year} Tercihlerini Toplu Sıfırla</button>${pendingResetCount ? `<button class="btn btn-secondary" onclick="goPage('leave-planning')">${pendingResetCount} Sıfırlama Talebini İncele</button>` : ''}</div><p class="form-note section-gap">Toplu sıfırlama yalnızca seçili planlama yılının tercihlerini ve o yıla ait planlama sonuçlarını temizler. Personelin bireysel sıfırlama talebi ise Admin onaylanana kadar mevcut tercihi silmez.</p></div></div>`;
+    <div class="card section-gap"><div class="card-header"><div><h3>🗓 Yıllık izin tercih yönetimi</h3><p>${year} yılı tercih ekranını Admin olarak açabilir, kapatabilir veya tüm tercihleri sıfırlayabilirsiniz. Karakol Komutanı aynı işlemleri Yıllık İzin Anket Sonuçları ekranından yapabilir.</p></div><span class="status ${preferenceOpen ? 'success' : 'danger'}">${preferenceOpen ? 'Tercihler Açık' : 'Tercihler Kapalı'}</span></div><div class="card-body"><div class="grid grid-3">${metric('🔐','Tercih sistemi',preferenceOpen?'Açık':'Kapalı',preferenceOpen?'Personel tercih kaydedebilir':'Personel formu salt okunur')}${metric('📨','Kayıtlı tercih',yearPreferenceCount+' kişi',year+' yılı')}${metric('🔄','Sıfırlama talebi',pendingResetCount+' bekleyen','Onay/ret: Yıllık İzin Anket Sonuçları')}</div><div class="sync-actions section-gap"><button class="btn ${preferenceOpen ? 'btn-warning' : 'btn-success'}" onclick="toggleLeavePreferenceSystem()">${preferenceOpen ? 'Yıllık İzin Tercihlerini Kapat' : 'Yıllık İzin Tercihlerini Aç'}</button><button class="btn btn-danger" onclick="resetAllLeavePreferences()">${year} Tercihlerini Toplu Sıfırla</button>${pendingResetCount ? `<button class="btn btn-secondary" onclick="goPage('leave-planning')">${pendingResetCount} Sıfırlama Talebini İncele</button>` : ''}</div><p class="form-note section-gap">Toplu sıfırlama yalnızca seçili planlama yılının tercihlerini ve o yıla ait planlama sonuçlarını temizler. Personelin bireysel sıfırlama talebi ise Admin veya Karakol Komutanı onaylayana kadar mevcut tercihi silmez.</p></div></div>`;
   document.getElementById('settingsForm').addEventListener('submit', e => {
     e.preventDefault(); const f=new FormData(e.target);
     db.settings={...db.settings,systemName:f.get('systemName'),bankName:f.get('bankName'),accountName:f.get('accountName'),iban:f.get('iban'),weeklyLaundryLimit:Number(f.get('weeklyLaundryLimit')),leavePlanYear:Number(f.get('leavePlanYear')),leaveConcurrentPercent:Number(f.get('leaveConcurrentPercent')),planningSecondChoiceBonus:Number(f.get('planningSecondChoiceBonus'))};
@@ -2177,16 +2180,16 @@ function renderSettings() {
   });
 }
 function toggleLeavePreferenceSystem() {
-  if (!isAdmin()) return toast('Bu işlemi yalnızca Admin yapabilir.');
+  if (!canManageLeavePreferences()) return toast('Bu işlem için yıllık izin tercih yönetimi yetkiniz yok.');
   const next = db.settings.leavePreferencesOpen === false;
   const action = next ? 'açılsın' : 'kapatılsın';
   if (!confirm(`${db.settings.leavePlanYear} yıllık izin tercih sistemi ${action} mı?`)) return;
   db.settings.leavePreferencesOpen = next;
   logAudit('leave.preference_system', `${db.settings.leavePlanYear} tercih sistemi ${next ? 'açıldı' : 'kapatıldı'}`);
-  saveDB(); renderSettings(); toast(`Yıllık izin tercih sistemi ${next ? 'açıldı' : 'kapatıldı'}.`);
+  saveDB(); currentPage === 'settings' && isAdmin() ? renderSettings() : renderLeavePlanning(); toast(`Yıllık izin tercih sistemi ${next ? 'açıldı' : 'kapatıldı'}.`);
 }
 function resetAllLeavePreferences() {
-  if (!isAdmin()) return toast('Bu işlemi yalnızca Admin yapabilir.');
+  if (!canManageLeavePreferences()) return toast('Bu işlem için yıllık izin tercih yönetimi yetkiniz yok.');
   const year = db.settings.leavePlanYear;
   const count = db.leavePreferences.filter(x => x.year === year).length;
   if (!count) return toast(`${year} yılı için sıfırlanacak tercih bulunmuyor.`);
@@ -2194,7 +2197,7 @@ function resetAllLeavePreferences() {
   db.leavePreferences = db.leavePreferences.filter(x => x.year !== year);
   db.leavePlanResults = db.leavePlanResults.filter(x => x.year !== year);
   logAudit('leave.preference_reset_all', `${year}: ${count} personelin yıllık izin tercihleri topluca sıfırlandı`);
-  saveDB(); renderSettings(); toast(`${year} yılı yıllık izin tercihleri topluca sıfırlandı.`);
+  saveDB(); currentPage === 'settings' && isAdmin() ? renderSettings() : renderLeavePlanning(); toast(`${year} yılı yıllık izin tercihleri topluca sıfırlandı.`);
 }
 function exportBackup() { const blob = new Blob([JSON.stringify(db, null, 2)], { type: 'application/json' }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'gencservi-v6-firestore-yedek.json'; a.click(); URL.revokeObjectURL(a.href); toast('Yedek dosyası indirildi.'); }
 function resetDemo() { refreshFromCloud(); }
