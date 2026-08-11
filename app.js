@@ -241,17 +241,27 @@ async function bootFirebase() {
   try {
     await firebaseReadyPromise();
     firebaseBooted = true;
-    setCloudStatus('', 'Firestore kontrol ediliyor');
-    await window.FirebaseBridge.ensureSettings();
-    const hasAdmin = await window.FirebaseBridge.hasAnyAdmin();
-    document.getElementById('bootstrapBox').classList.toggle('hidden', hasAdmin);
+
+    // Güvenlik kuralları oturum açmamış kullanıcıların Firestore verisini
+    // okumasını engelleyebilir. Bu nedenle giriş ekranı açılırken settings/users
+    // koleksiyonlarına sorgu gönderilmez; önce Firebase Auth oturumu beklenir.
+    setCloudStatus('', 'Oturum kontrol ediliyor');
     const authUser = await window.FirebaseBridge.waitForAuthState();
+
     if (authUser) {
       const profile = await window.FirebaseBridge.getUserProfile(authUser.uid);
-      if (profile?.approved && !profile?.rejected) await enterAuthenticatedApp(profile);
-      else await window.FirebaseBridge.signOut();
+      if (profile?.approved && !profile?.rejected) {
+        await enterAuthenticatedApp(profile);
+      } else {
+        await window.FirebaseBridge.signOut();
+        setCloudStatus('online', 'Giriş bekleniyor');
+      }
+    } else {
+      // Sistem zaten kurulmuş durumda. İlk admin kutusu üretim giriş ekranında
+      // görünmez ve Firestore'a anonim sorgu yapılmaz.
+      document.getElementById('bootstrapBox')?.classList.add('hidden');
+      setCloudStatus('online', 'Giriş bekleniyor');
     }
-    setCloudStatus('online', 'Firestore bağlı');
   } catch (error) {
     console.error(error);
     setCloudStatus('offline', 'Firebase bağlantı hatası');

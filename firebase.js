@@ -93,7 +93,9 @@ function firebaseErrorMessage(error) {
     'auth/weak-password': 'Şifre en az 6 karakter olmalıdır.',
     'auth/too-many-requests': 'Çok fazla deneme yapıldı. Bir süre sonra tekrar deneyin.',
     'auth/network-request-failed': 'Firebase bağlantısı kurulamadı. İnternet bağlantınızı kontrol edin.',
-    'auth/operation-not-allowed': 'Firebase Authentication içinde Email/Password giriş yöntemi henüz etkinleştirilmemiş.'
+    'auth/operation-not-allowed': 'Firebase Authentication içinde Email/Password giriş yöntemi henüz etkinleştirilmemiş.',
+    'permission-denied': 'Firestore erişim izni reddedildi. Güvenlik kurallarını kontrol edin.',
+    'firestore/permission-denied': 'Firestore erişim izni reddedildi. Güvenlik kurallarını kontrol edin.'
   };
   return map[code] || error?.message || 'Firebase işlemi tamamlanamadı.';
 }

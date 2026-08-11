@@ -1,17 +1,9 @@
-# PBYS V9.2
+# PBYS V9.3 – Firebase giriş güvenlik düzeltmesi
 
-Bu sürüm V9.1 üzerine hazırlanmıştır.
+- Giriş ekranı açılırken artık anonim Firestore `settings` / `users` sorgusu yapılmaz.
+- Önce Firebase Authentication oturumu kontrol edilir; Firestore yalnızca oturum varsa okunur.
+- Bu sayede güvenli Firestore kurallarında görülen `Missing or insufficient permissions` uyarısı giriş ekranında tetiklenmez.
+- Firestore permission-denied hataları Türkçe ve daha anlaşılır gösterilir.
+- V9.2 yemek menüsü, faaliyet, modern tasarım ve diğer özellikler korunur.
 
-## Değişiklikler
-- Karakol Komutanı rolünden Yoklama Girişi yetkisi kaldırıldı; Yoklama Özeti görüntüleme devam eder.
-- Ana Sayfa üzerindeki Menü Oluştur / Düzenle butonu kaldırıldı; ana sayfa menüyü yalnızca görüntüler.
-- Aşçı Yemek Ekranı, “Aşçı İşlemleri” olarak güncellendi.
-- Günlük Menü Yönetimi Aşçı İşlemleri ekranına taşındı.
-- `menu.manage` özel yetkisi olan kullanıcı, Aşçı rolü olmasa dahi Aşçı İşlemleri ekranından menü oluşturabilir/düzenleyebilir.
-- Kayıtlı menü tarih seçilerek tekrar yüklenir ve düzenlenebilir.
-- Ana Sayfada 00:00–18:59 arasında “Bugünün Yemek Menüsü” gösterilir.
-- 19:00–23:59 arasında ertesi günün menüsü “Yarının Yemek Menüsü” başlığıyla gösterilir.
-- Sayfa açık kalırsa 19:00 ve 00:00 geçişlerinde menü kartı otomatik yenilenir.
-- V9.1 mobil Rol / Yetki modal kaydırma ve Admin personel silme düzenlemeleri korunur.
-
-GitHub'a `index.html`, `app.js`, `styles.css` dosyalarını birlikte yükleyin. `firebase.js` değişmedi ancak tam paket içinde yer alır.
+> Not: Girişten sonra aynı hata görülürse Firestore Rules içinde özellikle `weeklyActivities` ve `dailyMenus` koleksiyonları için yetki kontrolü gerekir.
