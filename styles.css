@@ -1039,3 +1039,11 @@ input:hover,select:hover,textarea:hover{border-color:#cfd8e3}input:focus,select:
   .laundry-live-meta{grid-template-columns:1fr 1fr}.laundry-live-meta>div:last-child{grid-column:1/-1}
   .public-balance-page .table-wrap table{min-width:680px}
 }
+
+
+/* PBYS 9.2.4 - Çamaşır sayacı */
+.laundry-live-card.stopped{border-color:#94a3b8;background:linear-gradient(145deg,#f8fafc,#fff)}
+.laundry-live-badge.stopped{background:#e2e8f0;color:#334155}
+.laundry-run-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:auto}
+.laundry-run-actions .btn:only-child{grid-column:1/-1}
+@media(max-width:520px){.laundry-run-actions{grid-template-columns:1fr}}
