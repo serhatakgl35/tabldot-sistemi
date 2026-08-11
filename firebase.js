@@ -14,6 +14,7 @@ import {
   collection,
   getDocs,
   query,
+  where,
   limit,
   doc,
   getDoc,
@@ -71,6 +72,7 @@ const COLLECTIONS = {
 let lastMaps = null;
 let realtimeUnsubs = [];
 let realtimeTimer = null;
+let accessProfile = null;
 
 function clean(value) {
   if (Array.isArray(value)) return value.map(clean);
@@ -233,9 +235,89 @@ async function changePassword(newPassword) {
   await updatePassword(auth.currentUser, newPassword);
 }
 
-async function collectionData(name) {
-  const snap = await getDocs(collection(firestore, name));
+function setAccessProfile(profile) {
+  accessProfile = profile ? { ...profile } : null;
+}
+
+function profileRoles(profile = accessProfile) {
+  const roles = new Set(Array.isArray(profile?.roles) ? profile.roles : []);
+  if (profile?.role) roles.add(profile.role);
+  return roles;
+}
+
+function accessApproved() {
+  return !!(accessProfile?.approved && !accessProfile?.rejected);
+}
+
+function accessHasRole(role) {
+  return accessApproved() && profileRoles().has(role);
+}
+
+function accessHasExtra(permission) {
+  return accessApproved() && Array.isArray(accessProfile?.extraPermissions) && accessProfile.extraPermissions.includes(permission);
+}
+
+function accessIsAdmin() { return accessHasRole('admin'); }
+function personnelViewer() { return accessIsAdmin() || accessHasRole('administrative') || accessHasRole('commander') || accessHasExtra('personnel.view'); }
+function kitchenViewer() { return accessIsAdmin() || accessHasRole('cook') || accessHasExtra('kitchen.view'); }
+function mealManager() { return accessIsAdmin() || accessHasRole('tabldot') || accessHasRole('administrative') || accessHasExtra('meal.manage'); }
+function financeManager() { return accessIsAdmin() || accessHasRole('tabldot') || accessHasRole('administrative') || accessHasExtra('finance.manage'); }
+function attendanceViewer() { return accessIsAdmin() || accessHasRole('administrative') || accessHasRole('commander') || accessHasExtra('attendance.view') || accessHasExtra('attendance.manage'); }
+function leaveViewer() { return accessIsAdmin() || accessHasRole('administrative') || accessHasRole('commander') || accessHasExtra('leave.view') || accessHasExtra('leave.manage') || accessHasExtra('leave.approve') || accessHasExtra('leave.plan'); }
+function leavePlanner() { return accessIsAdmin() || accessHasRole('commander') || accessHasExtra('leave.plan'); }
+function laundryManager() { return accessIsAdmin() || accessHasExtra('laundry.manage'); }
+function ownNumericId() { return Number(accessProfile?.id); }
+
+async function collectionData(name, constraints = []) {
+  const ref = constraints.length ? query(collection(firestore, name), ...constraints) : collection(firestore, name);
+  const snap = await getDocs(ref);
   return snap.docs.map(d => ({ ...d.data(), _docId: d.id }));
+}
+
+function collectionRef(name, constraints = []) {
+  return constraints.length ? query(collection(firestore, name), ...constraints) : collection(firestore, name);
+}
+
+function readPlan() {
+  if (!accessApproved()) throw new Error('Onaylı kullanıcı oturumu bulunamadı.');
+  const myId = ownNumericId();
+  if (!Number.isFinite(myId)) throw new Error('Kullanıcı personel kimliği bulunamadı.');
+
+  const fullUsers = personnelViewer() || leaveViewer() || attendanceViewer();
+  const approvedUsers = !fullUsers && (kitchenViewer() || mealManager() || financeManager() || laundryManager());
+
+  return {
+    myId,
+    users: fullUsers ? { mode: 'collection' } : approvedUsers ? { mode: 'query', constraints: [where('approved', '==', true)] } : { mode: 'ownDoc' },
+    mealChoices: (mealManager() || kitchenViewer()) ? { mode: 'collection' } : { mode: 'query', constraints: [where('userId', '==', myId)] },
+    expenses: financeManager() ? { mode: 'collection' } : { mode: 'none' },
+    payments: financeManager() ? { mode: 'collection' } : { mode: 'query', constraints: [where('userId', '==', myId)] },
+    debts: financeManager() ? { mode: 'collection' } : { mode: 'query', constraints: [where('userId', '==', myId)] },
+    leaveRequests: leaveViewer()
+      ? { mode: 'collection' }
+      : (kitchenViewer() || financeManager())
+        ? { mode: 'query', constraints: [where('status', '==', 'approved'), where('type', '==', 'Yıllık İzin')] }
+        : { mode: 'query', constraints: [where('userId', '==', myId)] },
+    leavePreferences: leavePlanner() ? { mode: 'collection' } : { mode: 'query', constraints: [where('userId', '==', myId)] },
+    leavePlanResults: leavePlanner() ? { mode: 'collection' } : { mode: 'query', constraints: [where('userId', '==', myId)] },
+    laundry: { mode: 'collection' },
+    laundryFaults: { mode: 'collection' },
+    attendance: attendanceViewer() ? { mode: 'collection' } : { mode: 'query', constraints: [where('userId', '==', myId)] },
+    auditLogs: accessIsAdmin() ? { mode: 'collection' } : { mode: 'none' },
+    weeklyActivities: { mode: 'collection' },
+    dailyMenus: { mode: 'collection' }
+  };
+}
+
+async function readByPlan(name, plan) {
+  if (!plan || plan.mode === 'none') return [];
+  if (plan.mode === 'ownDoc') {
+    const uid = auth.currentUser?.uid;
+    if (!uid) return [];
+    const snap = await getDoc(doc(firestore, COLLECTIONS.users, uid));
+    return snap.exists() ? [{ ...snap.data(), _docId: snap.id }] : [];
+  }
+  return collectionData(name, plan.constraints || []);
 }
 
 function emptyState(settings = DEFAULT_SETTINGS) {
@@ -332,27 +414,33 @@ async function currentCloudMaps() {
 }
 
 async function loadState(updateSnapshot = true) {
+  const plan = readPlan();
   const settingsSnap = await getDoc(doc(firestore, 'settings', 'app'));
-  const state = emptyState(settingsSnap.exists() ? settingsSnap.data() : await ensureSettings());
+  const settings = settingsSnap.exists()
+    ? settingsSnap.data()
+    : (accessIsAdmin() ? await ensureSettings() : DEFAULT_SETTINGS);
+  const state = emptyState(settings);
 
   const [users, meals, expenses, payments, debts, leaves, prefs, plans, laundry, laundryFaults, attendance, audits, activities, menus] = await Promise.all([
-    collectionData(COLLECTIONS.users),
-    collectionData(COLLECTIONS.mealChoices),
-    collectionData(COLLECTIONS.expenses),
-    collectionData(COLLECTIONS.payments),
-    collectionData(COLLECTIONS.debts),
-    collectionData(COLLECTIONS.leaveRequests),
-    collectionData(COLLECTIONS.leavePreferences),
-    collectionData(COLLECTIONS.leavePlanResults),
-    collectionData(COLLECTIONS.laundry),
-    collectionData(COLLECTIONS.laundryFaults),
-    collectionData(COLLECTIONS.attendance),
-    collectionData(COLLECTIONS.auditLogs),
-    collectionData(COLLECTIONS.weeklyActivities),
-    collectionData(COLLECTIONS.dailyMenus)
+    readByPlan(COLLECTIONS.users, plan.users),
+    readByPlan(COLLECTIONS.mealChoices, plan.mealChoices),
+    readByPlan(COLLECTIONS.expenses, plan.expenses),
+    readByPlan(COLLECTIONS.payments, plan.payments),
+    readByPlan(COLLECTIONS.debts, plan.debts),
+    readByPlan(COLLECTIONS.leaveRequests, plan.leaveRequests),
+    readByPlan(COLLECTIONS.leavePreferences, plan.leavePreferences),
+    readByPlan(COLLECTIONS.leavePlanResults, plan.leavePlanResults),
+    readByPlan(COLLECTIONS.laundry, plan.laundry),
+    readByPlan(COLLECTIONS.laundryFaults, plan.laundryFaults),
+    readByPlan(COLLECTIONS.attendance, plan.attendance),
+    readByPlan(COLLECTIONS.auditLogs, plan.auditLogs),
+    readByPlan(COLLECTIONS.weeklyActivities, plan.weeklyActivities),
+    readByPlan(COLLECTIONS.dailyMenus, plan.dailyMenus)
   ]);
 
   state.users = users.map(x => ({ ...x, uid: x.uid || x._docId })).map(({ _docId, ...x }) => x);
+  if (!state.users.some(u => u.uid === accessProfile?.uid) && accessProfile) state.users.push({ ...accessProfile });
+
   meals.forEach(({ _docId, userId, date, breakfast = '', dinner = '' }) => {
     state.mealSelections[userId] ||= {};
     state.mealSelections[userId][date] = { breakfast, dinner };
@@ -381,9 +469,37 @@ function stopRealtime() {
   if (realtimeTimer) clearTimeout(realtimeTimer);
 }
 
+function realtimeRefs() {
+  const plan = readPlan();
+  const refs = [{ label: 'settings/app', ref: doc(firestore, 'settings', 'app') }];
+  const add = (label, name, itemPlan) => {
+    if (!itemPlan || itemPlan.mode === 'none') return;
+    if (itemPlan.mode === 'ownDoc') {
+      const uid = auth.currentUser?.uid;
+      if (uid) refs.push({ label, ref: doc(firestore, name, uid) });
+      return;
+    }
+    refs.push({ label, ref: collectionRef(name, itemPlan.constraints || []) });
+  };
+  add('users', COLLECTIONS.users, plan.users);
+  add('mealChoices', COLLECTIONS.mealChoices, plan.mealChoices);
+  add('mealExpenses', COLLECTIONS.expenses, plan.expenses);
+  add('payments', COLLECTIONS.payments, plan.payments);
+  add('debts', COLLECTIONS.debts, plan.debts);
+  add('leaveRequests', COLLECTIONS.leaveRequests, plan.leaveRequests);
+  add('leavePreferences', COLLECTIONS.leavePreferences, plan.leavePreferences);
+  add('leavePlanResults', COLLECTIONS.leavePlanResults, plan.leavePlanResults);
+  add('laundryReservations', COLLECTIONS.laundry, plan.laundry);
+  add('laundryFaults', COLLECTIONS.laundryFaults, plan.laundryFaults);
+  add('attendance', COLLECTIONS.attendance, plan.attendance);
+  add('auditLogs', COLLECTIONS.auditLogs, plan.auditLogs);
+  add('weeklyActivities', COLLECTIONS.weeklyActivities, plan.weeklyActivities);
+  add('dailyMenus', COLLECTIONS.dailyMenus, plan.dailyMenus);
+  return refs;
+}
+
 function startRealtime(callback) {
   stopRealtime();
-  const names = [...Object.values(COLLECTIONS), 'settings'];
   const schedule = snap => {
     if (snap?.metadata?.hasPendingWrites) return;
     clearTimeout(realtimeTimer);
@@ -396,7 +512,9 @@ function startRealtime(callback) {
       }
     }, 350);
   };
-  names.forEach(name => realtimeUnsubs.push(onSnapshot(collection(firestore, name), schedule, error => console.error(`Listener ${name}`, error))));
+  realtimeRefs().forEach(({ label, ref }) => {
+    realtimeUnsubs.push(onSnapshot(ref, schedule, error => console.error(`Listener ${label}`, error)));
+  });
   return stopRealtime;
 }
 
@@ -409,6 +527,7 @@ window.FirebaseBridge = {
   hasAnyUsers,
   hasAnyAdmin,
   getUserProfile,
+  setAccessProfile,
   bootstrapAdmin,
   registerPending,
   adminCreateUser,
