@@ -795,3 +795,23 @@ tbody tr:hover { background: #f8fafc; }
   .commander-leave-summary{grid-template-columns:1fr}
   .activity-section-title{align-items:flex-start;flex-direction:column;gap:3px}
 }
+
+
+/* PBYS V8.8 - mobil yan menü dışına dokununca kapatma katmanı */
+.sidebar-backdrop{display:none}
+@media(max-width:900px){
+  .sidebar-backdrop{
+    display:block;
+    position:fixed;
+    inset:0;
+    z-index:19;
+    background:rgba(15,23,42,.28);
+    opacity:0;
+    pointer-events:none;
+    transition:opacity .2s ease;
+  }
+  .sidebar.open + .sidebar-backdrop{
+    opacity:1;
+    pointer-events:auto;
+  }
+}
