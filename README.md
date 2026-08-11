@@ -1,38 +1,26 @@
-# Personel Yaşam ve Tabldot Sistemi – İlk Prototip
+# PBYS V8.5 Test
 
-Bu paket, 35 kişilik çalışma ortamı için hazırlanan telefon uyumlu çalışan ön yüz prototipidir.
+Bu sürüm V8.4 üzerine aşağıdaki düzenlemeleri ekler:
 
-## İçerdiği modüller
+- Karakol Komutanı girişinde **İzin Talepleri** ana sayfanın en üstünde gösterilir.
+- Bekleyen izin yoksa komutan yine "Onay bekleyen izin talebi bulunmuyor" bilgisini görür.
+- Yemek tercihleri mali hesaptan ayrıldı: **Yemeyeceğim** aşçı sayısını azaltır fakat tabldot borcunu azaltmaz.
+- Ortak tabldot giderinden yalnızca **onaylı yıllık izin** günleri düşülür.
+- Tabldot hesabı günde iki öğün (Sabah + Akşam) üzerinden hesaplanır.
+- Tabldot Bilanço mobil görünümünde kart ve tablo genişlikleri standartlaştırıldı.
+- Tabldot Bilanço sayfasına **Ödeme Onayı** bölümü eklendi.
+- Yetkili kullanıcı ödeme bildirimini Onayla / Reddet işlemiyle yönetebilir.
+- Onaylanan ödeme ilgili dönem borcunun ödenen tutarına işlenir.
+- Ödeme bildirim geçmişi bilanço ekranında görünür.
 
-- Telefon numarası ve şifre ile giriş
-- Admin onaylı üyelik başvurusu
-- Admin, müdür ve personel rolleri
-- Haftalık kahvaltı / öğle / akşam yemek seçimi
-- Gider kayıtları ve yemek yönetimi
-- Borç, ödeme bildirimi ve IBAN ekranı
-- Bilanço özeti
-- Yıllık izin talebi, onay/red ve takvim görünümü
-- Çamaşır makinesi randevu paneli
-- CSV rapor indirme
-- Yerel JSON yedekleme
+Firestore verileri korunur; mevcut koleksiyonlar kullanılmaya devam edilir.
 
-## Demo hesapları
 
-- Admin: `0500 000 00 01` / `123456`
-- Müdür: `0500 000 00 02` / `123456`
-- Personel: `0500 000 00 03` / `123456`
+## V8.6
+- Yıllık izin planlaması Kış ve Yaz dönemi olarak ayrıldı.
+- Kış dönemi: Ocak-Mayıs ve Ekim-Aralık, 10 gün, iki tercih.
+- Yaz dönemi: Haziran-Eylül, 20 gün, iki tercih.
+- Personelden toplam dört tercih alınır.
+- Yönetim anketleri, karar tabloları ve izin planlama PDF raporu Kış/Yaz olarak ayrı gösterilir.
 
-## Çalıştırma
-
-`index.html` dosyasını Chrome veya Edge ile açın.
-
-Veriler bu prototipte tarayıcının localStorage alanında tutulur. Bu nedenle gerçek kullanıma açılmadan önce sunucu tarafı kimlik doğrulama, veritabanı, dosya yükleme, erişim yetkileri ve yedekleme sistemi kurulmalıdır.
-
-## Canlı sistem için önerilen altyapı
-
-- Next.js
-- Supabase PostgreSQL
-- Supabase Auth veya özel telefon/şifre doğrulama
-- Supabase Storage (dekont ve belgeler)
-- Vercel dağıtımı
-
+Not: V8.6, önceki tek 1./2. tercih yapısından Kış 1-2 ve Yaz 1-2 olmak üzere toplam 4 tercihe geçer. Eski test tercihleri mümkün olduğunca dönemine göre otomatik taşınır; eksik kalan tercihleri personel formdan tamamlar.

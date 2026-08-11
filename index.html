@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="theme-color" content="#0f172a" />
-  <title>Personel Yaşam ve Tabldot Sistemi</title>
+  <title>PBYS - Personel Bilgi Yönetim Sistemi</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -15,10 +15,10 @@
 
   <section id="authView" class="auth-shell">
     <div class="auth-brand">
-      <div class="brand-mark">PY</div>
+      <div class="brand-mark">PBYS</div>
       <div>
-        <h1>Personel Yaşam Sistemi</h1>
-        <p>Tabldot, izin, ödeme ve ortak alan yönetimi</p>
+        <h1>PBYS</h1>
+        <p><strong>Personel Bilgi Yönetim Sistemi</strong></p>
       </div>
     </div>
 
@@ -36,11 +36,15 @@
           <input id="loginPassword" type="password" placeholder="••••••" required />
         </label>
         <button class="btn btn-primary btn-block" type="submit">Sisteme Giriş</button>
-        <div class="demo-box">
-          <strong>Demo hesapları</strong>
-          <span>Admin: 0500 000 00 01 / 123456</span>
-          <span>Müdür: 0500 000 00 02 / 123456</span>
-          <span>Personel: 0500 000 00 03 / 123456</span>
+        <div class="demo-box firebase-info-box">
+          <strong>Firebase bağlantılı sistem</strong>
+          <span id="authHint">Telefon numaranız ve şifrenizle giriş yapın.</span>
+          <span>Yeni üyelikler yönetici onayından sonra açılır.</span>
+        </div>
+        <div id="bootstrapBox" class="bootstrap-box hidden">
+          <strong>İlk kurulum gerekli</strong>
+          <span>Sistemde henüz admin hesabı yok. İlk yöneticiyi buradan oluşturun.</span>
+          <button id="bootstrapBtn" type="button" class="btn btn-warning btn-block">İlk Admin Hesabını Oluştur</button>
         </div>
       </form>
 
@@ -66,10 +70,10 @@
   <div id="appView" class="app-shell hidden">
     <aside class="sidebar" id="sidebar">
       <div class="sidebar-brand">
-        <div class="brand-mark small">PY</div>
+        <div class="brand-mark small">PB</div>
         <div>
-          <strong>Personel Yaşam</strong>
-          <span>Yönetim Sistemi</span>
+          <strong>PBYS</strong>
+          <span>Personel Bilgi Yönetim Sistemi</span>
         </div>
       </div>
 
@@ -95,6 +99,7 @@
           <p id="todayLabel"></p>
         </div>
         <div class="top-actions">
+          <div id="cloudStatus" class="cloud-status"><span class="cloud-dot"></span><span>Bağlanıyor</span></div>
           <button class="icon-btn" id="notificationBtn" title="Bildirimler">🔔<span class="badge-dot"></span></button>
           <div class="avatar" id="topAvatar">S</div>
         </div>
@@ -114,6 +119,7 @@
     </div>
   </div>
 
+  <script type="module" src="firebase.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
