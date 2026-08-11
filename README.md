@@ -1,9 +1,11 @@
-# PBYS V9.3 – Firebase giriş güvenlik düzeltmesi
+# PBYS V9.7 – Yıllık İzin Tercih Dönemi Yönetimi
 
-- Giriş ekranı açılırken artık anonim Firestore `settings` / `users` sorgusu yapılmaz.
-- Önce Firebase Authentication oturumu kontrol edilir; Firestore yalnızca oturum varsa okunur.
-- Bu sayede güvenli Firestore kurallarında görülen `Missing or insufficient permissions` uyarısı giriş ekranında tetiklenmez.
-- Firestore permission-denied hataları Türkçe ve daha anlaşılır gösterilir.
-- V9.2 yemek menüsü, faaliyet, modern tasarım ve diğer özellikler korunur.
+Bu sürümde:
 
-> Not: Girişten sonra aynı hata görülürse Firestore Rules içinde özellikle `weeklyActivities` ve `dailyMenus` koleksiyonları için yetki kontrolü gerekir.
+- Admin > Sistem Ayarları bölümüne **Yıllık İzin Tercih Dönemi Aç/Kapat** ayarı eklendi.
+- Tercih / planlama yılı Admin tarafından belirlenir.
+- Tercih dönemi kapalıyken personel mevcut tercih özetini görür ancak formu değiştiremez ve yeni tercih gönderemez.
+- Dönem açıldığında Kış 1-2 ve Yaz 1-2 olmak üzere toplam 4 tercih aktif olur.
+- Tercih dönemi kapatıldığında mevcut Firestore kayıtları silinmez.
+- Ayar `settings/app` üzerinden tüm cihazlara senkronize edilir.
+- V9.6 faaliyet takvimi geniş görünüm düzeltmesi ve V9.5 dinamik yetki düzeltmeleri korunur.

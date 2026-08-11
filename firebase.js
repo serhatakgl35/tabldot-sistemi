@@ -44,6 +44,8 @@ const DEFAULT_SETTINGS = {
   bankName: '',
   weeklyLaundryLimit: 2,
   leavePlanYear: 2027,
+  leavePreferenceYear: 2027,
+  leavePreferenceOpen: false,
   leaveConcurrentPercent: 25,
   roadAllowanceDefault: 2,
   planningSecondChoiceBonus: 20,

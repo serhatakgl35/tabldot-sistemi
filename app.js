@@ -11,6 +11,8 @@ const seed = {
     bankName: '',
     weeklyLaundryLimit: 2,
     leavePlanYear: 2027,
+    leavePreferenceYear: 2027,
+    leavePreferenceOpen: false,
     leaveConcurrentPercent: 25,
     roadAllowanceDefault: 2,
     planningSecondChoiceBonus: 20,
@@ -765,7 +767,7 @@ function renderDashboard() {
   scheduleDashboardMenuRefresh();
   const ownDebt = db.debts.filter(x => x.userId === currentUser.id).reduce((s, x) => s + Math.max(0, x.amount - x.paid), 0);
   const remaining = getRemainingLeave(currentUser);
-  const preference = db.leavePreferences.find(x => x.userId === currentUser.id && x.year === db.settings.leavePlanYear);
+  const preference = db.leavePreferences.find(x => x.userId === currentUser.id && x.year === getLeavePreferenceYear());
   const currentWeek = getWeekDates(mealWeekCursor);
   const mealCount = currentWeek.reduce((sum, date) => sum + (isBillableTabldotSlot(currentUser.id, date) ? 2 : 0), 0);
   const kitchenMealCount = currentWeek.reduce((sum, date) => sum + ['breakfast','dinner'].filter(meal => ['yes','duty'].includes(effectiveMealStatus(currentUser.id,date,meal))).length, 0);
@@ -782,12 +784,12 @@ function renderDashboard() {
         ${quick('🍽', 'Tarihli yemek listesini güncelle', 'Varsayılan olarak yemek yiyecek kabul edilirsiniz', "goPage('my-meals')")}
         ${hasCookPermission() ? quick('👨‍🍳', 'Bugünün yemek sayılarını aç', 'Sabah ve akşam hazırlık sayıları', "goPage('cook-dashboard')") : ''}
         ${!isCommander() ? quick('📅', 'Yeni izin talebi oluştur', 'Yıllık, günübirlik ve diğer izin talepleri', "leaveModal()") : ''}
-        ${quick('⭐', 'Yıllık izin tercihlerini gönder', 'Kış için 2, yaz için 2 tercih alınır', "goPage('leave-preference')")}
+        ${quick('⭐', isLeavePreferenceOpen() ? 'Yıllık izin tercihlerini gönder' : 'Yıllık izin tercihlerimi görüntüle', isLeavePreferenceOpen() ? 'Kış için 2, yaz için 2 tercih alınır' : 'Tercih dönemi yönetim tarafından kapalı', "goPage('leave-preference')")}
       </div></div>
       <div class="card"><div class="card-header"><div><h3>Duyurular</h3><p>Ortak bilgilendirmeler</p></div></div><div class="card-body quick-list">
         ${notice('Yemek sistemi', 'Tercih yapmayan personel yemek yiyecek kabul edilir.')}
-        ${notice('İzin planlaması', db.settings.leavePlanYear + ' yılı için kış ve yaz dönemlerinde ikişer tercih alınmaktadır.')}
-        ${notice('Yıllık izin tercihi', preference ? 'Tercihiniz sisteme kaydedildi.' : 'Henüz tercih göndermediniz.')}
+        ${notice('İzin planlaması', isLeavePreferenceOpen() ? getLeavePreferenceYear() + ' yılı için tercih dönemi açıktır.' : getLeavePreferenceYear() + ' yılı yıllık izin tercih dönemi henüz açılmamıştır.')}
+        ${notice('Yıllık izin tercihi', preference ? 'Tercihiniz sisteme kaydedildi.' : (isLeavePreferenceOpen() ? 'Henüz tercih göndermediniz.' : 'Tercih dönemi açıldığında seçim yapabilirsiniz.'))}
       </div></div>
     </div>`;
 
@@ -802,7 +804,7 @@ function renderDashboard() {
   const pendingMembers = db.users.filter(u => !u.approved).length;
   const pendingLeaveRows = db.leaveRequests.filter(x => x.status === 'pending').sort((a,b) => String(a.start || '').localeCompare(String(b.start || ''))).slice(0, 8);
   const pendingLeaves = db.leaveRequests.filter(x => x.status === 'pending').length;
-  const submitted = db.leavePreferences.filter(x => x.year === db.settings.leavePlanYear && x.status !== 'reselect').length;
+  const submitted = db.leavePreferences.filter(x => x.year === getLeavePreferenceYear() && x.status !== 'reselect').length;
 
   const pendingLeaveCard = hasPermission('leave.view') && pendingLeaveRows.length ? `
     <div class="card commander-leave-card section-gap"><div class="card-header"><div><h3>⏳ İzin Talepleri</h3><p>Onay bekleyen izin talepleri</p></div><button class="btn btn-primary btn-sm" onclick="goPage('leave-management')">Tümünü Gör</button></div>
@@ -813,7 +815,7 @@ function renderDashboard() {
     <div class="grid grid-4 section-gap">
       ${metric('👥', 'Aktif personel', approvedUsers().length, pendingMembers + ' üyelik onay bekliyor')}
       ${metric('🕓', 'Bekleyen izin talebi', pendingLeaves, pendingLeaves ? 'Değerlendirme gerekli' : 'Bekleyen talep yok')}
-      ${metric('⭐', 'Yıllık tercih veren', submitted + ' kişi', db.settings.leavePlanYear + ' planlama yılı')}
+      ${metric('⭐', 'Yıllık tercih veren', submitted + ' kişi', getLeavePreferenceYear() + ' planlama yılı')}
       ${metric('📏', 'Aynı anda izinli sınırı', concurrentLeaveCapacity() + ' kişi', '%' + (db.settings.leaveConcurrentPercent || 25) + ' mevcut sınırı')}
     </div>
     <div class="card section-gap"><div class="card-header"><div><h3>Yönetim kısa yolları</h3><p>Yetkinize bağlı ortak ekranlar</p></div></div><div class="card-body quick-list">
@@ -1519,7 +1521,7 @@ function openPersonnelLeaves(userId) {
   if (!hasPermission('personnel.view') && !hasPermission('leave.view')) return;
   const user = getUser(userId); if (!user) return;
   const records = db.leaveRequests.filter(x => x.userId === userId).sort((a, b) => b.start.localeCompare(a.start));
-  const preference = db.leavePreferences.find(x => x.userId === userId && x.year === db.settings.leavePlanYear);
+  const preference = db.leavePreferences.find(x => x.userId === userId && x.year === getLeavePreferenceYear());
   showModal(`${user.name} · Personel ve İzin Bilgileri`, `
     <div class="grid grid-4 compact-metrics">
       ${metric('📅', 'Yıllık hak', (user.annualAllowance ?? 30) + ' gün', 'Tanımlı hak')}
@@ -1527,7 +1529,7 @@ function openPersonnelLeaves(userId) {
       ${metric('🛣️', 'Yol izni hakkı', (user.roadAllowance ?? 2) + ' gün', 'Ayrı bakiye')}
       ${metric('🛣️', 'Yol izni kalan', getRoadRemaining(user) + ' gün', 'Kullanılmış günler düşülmüştür')}
     </div>
-    <div class="person-summary section-gap"><div><strong>Rol</strong><span>${escapeHtml(userRoleLabels(user))}</span></div>${hasPermission('leave.plan') ? `<div><strong>Planlama puanı</strong><span>${user.planningScore ?? 0}</span></div>` : ''}<div><strong>${db.settings.leavePlanYear} tercihi</strong><span>${preference ? 'Gönderildi' : 'Gönderilmedi'}</span></div></div>
+    <div class="person-summary section-gap"><div><strong>Rol</strong><span>${escapeHtml(userRoleLabels(user))}</span></div>${hasPermission('leave.plan') ? `<div><strong>Planlama puanı</strong><span>${user.planningScore ?? 0}</span></div>` : ''}<div><strong>${getLeavePreferenceYear()} tercihi</strong><span>${preference ? 'Gönderildi' : 'Gönderilmedi'}</span></div></div>
     ${preference ? (()=>{const p=normalizePreferenceRecord(preference);return `<div class="preference-period-title section-gap"><strong>❄️ Kış dönemi · 10 gün</strong><span>Ocak–Mayıs ve Ekim–Aralık</span></div><div class="preference-summary"><div><strong>Kış 1. tercih</strong><span>${p.winterFirstStart?`${formatDate(p.winterFirstStart)} – ${formatDate(p.winterFirstEnd)}`:'—'}</span></div><div><strong>Kış 2. tercih</strong><span>${p.winterSecondStart?`${formatDate(p.winterSecondStart)} – ${formatDate(p.winterSecondEnd)}`:'—'}</span></div></div><div class="preference-period-title section-gap"><strong>☀️ Yaz dönemi · 20 gün</strong><span>Haziran–Eylül</span></div><div class="preference-summary"><div><strong>Yaz 1. tercih</strong><span>${p.summerFirstStart?`${formatDate(p.summerFirstStart)} – ${formatDate(p.summerFirstEnd)}`:'—'}</span></div><div><strong>Yaz 2. tercih</strong><span>${p.summerSecondStart?`${formatDate(p.summerSecondStart)} – ${formatDate(p.summerSecondEnd)}`:'—'}</span></div></div>`})() : ''}
     <div class="section-gap"><h3>Tüm izin kayıtları</h3>${records.length ? leaveTable(records, false, true) : '<div class="empty">Bu personele ait izin kaydı bulunmuyor.</div>'}</div>`);
 }
@@ -1598,40 +1600,59 @@ function approveLeave(id) {
 }
 function rejectLeave(id) { if (!hasPermission('leave.approve') && !hasPermission('leave.manage')) return; const x = db.leaveRequests.find(r => r.id === id); if (x) { x.status = 'rejected'; saveDB(); renderLeaveManagement(); toast('İzin talebi reddedildi.'); } }
 
+function getLeavePreferenceYear() {
+  return Number(db.settings.leavePreferenceYear || db.settings.leavePlanYear || (new Date().getFullYear() + 1));
+}
+function isLeavePreferenceOpen() {
+  return db.settings.leavePreferenceOpen === true;
+}
 function renderMyLeavePreference() {
-  const year = db.settings.leavePlanYear;
+  const year = getLeavePreferenceYear();
+  const preferenceOpen = isLeavePreferenceOpen();
   const rawPreference = db.leavePreferences.find(x => x.userId === currentUser.id && x.year === year);
   const preference = normalizePreferenceRecord(rawPreference);
   const result = normalizeLeavePlanResult(db.leavePlanResults.find(x => x.userId === currentUser.id && x.year === year && x.announced));
   const v = key => preference?.[key] || '';
-  document.getElementById('pageContent').innerHTML = `
-    <div class="grid grid-2">${metric('🗓', 'Planlama yılı', year, 'Yönetim tarafından belirlenir')}${metric('📌', 'Planlama sonucu', result ? resultLabel(result) : 'Değerlendirme bekleniyor', result ? 'Kış ve yaz sonuçları yönetim tarafından açıklandı' : 'Puan ve iç değerlendirme personele gösterilmez')}</div>
-    <div class="card section-gap"><div class="card-header"><div><h3>${year} yıllık izin tercih formu</h3><p>Toplam 4 tercih alınır: Kış döneminde 10 günlük 2 tercih, yaz döneminde 20 günlük 2 tercih.</p></div></div><div class="card-body">
-      ${preference?.status === 'reselect' ? '<div class="management-banner"><strong>Tekrar tercih istendi</strong><span>Yönetim tercihlerinizi yeniden düzenlemenizi istiyor.</span></div>' : ''}
-      <form id="preferenceForm" class="form-grid section-gap">
-        <div class="span-2 preference-period-title"><strong>❄️ KIŞ DÖNEMİ · 10 GÜN</strong><span>Ocak, Şubat, Mart, Nisan, Mayıs, Ekim, Kasım, Aralık</span></div>
-        <div class="span-2 preference-heading"><strong>Kış 1. Tercih</strong><span>Öncelikli kış izin dönemi</span></div>
-        <label>Başlangıç<input id="winterFirstStartInput" name="winterFirstStart" type="date" value="${v('winterFirstStart')}" required></label>
-        <label>Bitiş (otomatik)<input id="winterFirstEndInput" type="date" value="${v('winterFirstStart') ? preferenceEndForStart(v('winterFirstStart')) : ''}" readonly></label>
-        <div class="span-2 preference-heading"><strong>Kış 2. Tercih</strong><span>İlk kış tercihi uygun olmazsa değerlendirilir</span></div>
-        <label>Başlangıç<input id="winterSecondStartInput" name="winterSecondStart" type="date" value="${v('winterSecondStart')}" required></label>
-        <label>Bitiş (otomatik)<input id="winterSecondEndInput" type="date" value="${v('winterSecondStart') ? preferenceEndForStart(v('winterSecondStart')) : ''}" readonly></label>
+  const disabled = preferenceOpen ? '' : 'disabled';
+  const periodBanner = preferenceOpen
+    ? `<div class="preference-access-banner open"><strong>Tercih dönemi açık</strong><span>${year} yılı için kış ve yaz tercihlerinizi gönderebilir veya güncelleyebilirsiniz.</span></div>`
+    : `<div class="preference-access-banner closed"><strong>${year} yıllık izin tercih dönemi henüz açılmamıştır.</strong><span>Yönetim tercih dönemini açtığında seçimlerinizi yapabilirsiniz. Daha önce gönderilmiş tercihleriniz aşağıdaki özet bölümünde korunur.</span></div>`;
 
-        <div class="span-2 preference-period-title preference-summer"><strong>☀️ YAZ DÖNEMİ · 20 GÜN</strong><span>Haziran, Temmuz, Ağustos, Eylül</span></div>
-        <div class="span-2 preference-heading"><strong>Yaz 1. Tercih</strong><span>Öncelikli yaz izin dönemi</span></div>
-        <label>Başlangıç<input id="summerFirstStartInput" name="summerFirstStart" type="date" value="${v('summerFirstStart')}" required></label>
-        <label>Bitiş (otomatik)<input id="summerFirstEndInput" type="date" value="${v('summerFirstStart') ? preferenceEndForStart(v('summerFirstStart')) : ''}" readonly></label>
-        <div class="span-2 preference-heading"><strong>Yaz 2. Tercih</strong><span>İlk yaz tercihi uygun olmazsa değerlendirilir</span></div>
-        <label>Başlangıç<input id="summerSecondStartInput" name="summerSecondStart" type="date" value="${v('summerSecondStart')}" required></label>
-        <label>Bitiş (otomatik)<input id="summerSecondEndInput" type="date" value="${v('summerSecondStart') ? preferenceEndForStart(v('summerSecondStart')) : ''}" readonly></label>
-        <label class="span-2">Açıklama<textarea name="note" placeholder="Varsa planlamada dikkate alınmasını istediğiniz husus">${escapeHtml(preference?.note || '')}</textarea></label>
-        <div class="span-2"><button class="btn btn-primary btn-block">4 Tercihimi Kaydet</button></div>
+  document.getElementById('pageContent').innerHTML = `
+    <div class="grid grid-2">${metric('🗓', 'Tercih yılı', year, 'Yönetim tarafından belirlenir')}${metric(preferenceOpen ? '🟢' : '🔒', 'Tercih dönemi', preferenceOpen ? 'Açık' : 'Kapalı', preferenceOpen ? 'Form aktif' : 'Form salt okunur')}</div>
+    <div class="card section-gap"><div class="card-header"><div><h3>${year} yıllık izin tercih formu</h3><p>Toplam 4 tercih alınır: Kış döneminde 10 günlük 2 tercih, yaz döneminde 20 günlük 2 tercih.</p></div></div><div class="card-body">
+      ${periodBanner}
+      ${preference?.status === 'reselect' ? '<div class="management-banner"><strong>Tekrar tercih istendi</strong><span>Yönetim tercihlerinizi yeniden düzenlemenizi istiyor. Tercih dönemi kapalıysa yönetimin tekrar açmasını bekleyin.</span></div>' : ''}
+      <form id="preferenceForm" class="form-grid section-gap ${preferenceOpen ? '' : 'preference-form-locked'}">
+        <fieldset class="preference-fieldset span-2" ${disabled}>
+          <div class="form-grid">
+            <div class="span-2 preference-period-title"><strong>❄️ KIŞ DÖNEMİ · 10 GÜN</strong><span>Ocak, Şubat, Mart, Nisan, Mayıs, Ekim, Kasım, Aralık</span></div>
+            <div class="span-2 preference-heading"><strong>Kış 1. Tercih</strong><span>Öncelikli kış izin dönemi</span></div>
+            <label>Başlangıç<input id="winterFirstStartInput" name="winterFirstStart" type="date" value="${v('winterFirstStart')}" required></label>
+            <label>Bitiş (otomatik)<input id="winterFirstEndInput" type="date" value="${v('winterFirstStart') ? preferenceEndForStart(v('winterFirstStart')) : ''}" readonly></label>
+            <div class="span-2 preference-heading"><strong>Kış 2. Tercih</strong><span>İlk kış tercihi uygun olmazsa değerlendirilir</span></div>
+            <label>Başlangıç<input id="winterSecondStartInput" name="winterSecondStart" type="date" value="${v('winterSecondStart')}" required></label>
+            <label>Bitiş (otomatik)<input id="winterSecondEndInput" type="date" value="${v('winterSecondStart') ? preferenceEndForStart(v('winterSecondStart')) : ''}" readonly></label>
+
+            <div class="span-2 preference-period-title preference-summer"><strong>☀️ YAZ DÖNEMİ · 20 GÜN</strong><span>Haziran, Temmuz, Ağustos, Eylül</span></div>
+            <div class="span-2 preference-heading"><strong>Yaz 1. Tercih</strong><span>Öncelikli yaz izin dönemi</span></div>
+            <label>Başlangıç<input id="summerFirstStartInput" name="summerFirstStart" type="date" value="${v('summerFirstStart')}" required></label>
+            <label>Bitiş (otomatik)<input id="summerFirstEndInput" type="date" value="${v('summerFirstStart') ? preferenceEndForStart(v('summerFirstStart')) : ''}" readonly></label>
+            <div class="span-2 preference-heading"><strong>Yaz 2. Tercih</strong><span>İlk yaz tercihi uygun olmazsa değerlendirilir</span></div>
+            <label>Başlangıç<input id="summerSecondStartInput" name="summerSecondStart" type="date" value="${v('summerSecondStart')}" required></label>
+            <label>Bitiş (otomatik)<input id="summerSecondEndInput" type="date" value="${v('summerSecondStart') ? preferenceEndForStart(v('summerSecondStart')) : ''}" readonly></label>
+            <label class="span-2">Açıklama<textarea name="note" placeholder="Varsa planlamada dikkate alınmasını istediğiniz husus">${escapeHtml(preference?.note || '')}</textarea></label>
+            <div class="span-2"><button class="btn btn-primary btn-block">4 Tercihimi Kaydet</button></div>
+          </div>
+        </fieldset>
       </form>
     </div></div>
     ${preference ? `<div class="grid grid-2 section-gap">
       <div class="card"><div class="card-header"><div><h3>❄️ Kış dönemi tercih özeti</h3><p>10 günlük izin planlaması</p></div></div><div class="card-body preference-summary"><div><strong>1. tercih</strong><span>${v('winterFirstStart')?`${formatDate(v('winterFirstStart'))} – ${formatDate(v('winterFirstEnd'))}`:'—'}</span></div><div><strong>2. tercih</strong><span>${v('winterSecondStart')?`${formatDate(v('winterSecondStart'))} – ${formatDate(v('winterSecondEnd'))}`:'—'}</span></div></div></div>
       <div class="card"><div class="card-header"><div><h3>☀️ Yaz dönemi tercih özeti</h3><p>20 günlük izin planlaması</p></div>${statusBadge(preference.status === 'reselect' ? 'warning' : 'submitted')}</div><div class="card-body preference-summary"><div><strong>1. tercih</strong><span>${v('summerFirstStart')?`${formatDate(v('summerFirstStart'))} – ${formatDate(v('summerFirstEnd'))}`:'—'}</span></div><div><strong>2. tercih</strong><span>${v('summerSecondStart')?`${formatDate(v('summerSecondStart'))} – ${formatDate(v('summerSecondEnd'))}`:'—'}</span></div></div></div>
     </div>` : ''}`;
+
+  if (!preferenceOpen) return;
 
   const pairs = [
     ['winterFirstStartInput','winterFirstEndInput'], ['winterSecondStartInput','winterSecondEndInput'],
@@ -1640,7 +1661,9 @@ function renderMyLeavePreference() {
   const syncEnds = () => pairs.forEach(([startId,endId]) => { const input=document.getElementById(startId); if(input) document.getElementById(endId).value=input.value?preferenceEndForStart(input.value):''; });
   pairs.forEach(([startId]) => document.getElementById(startId)?.addEventListener('change', syncEnds));
   document.getElementById('preferenceForm').addEventListener('submit', e => {
-    e.preventDefault(); const f = new FormData(e.target);
+    e.preventDefault();
+    if (!isLeavePreferenceOpen()) return toast('Yıllık izin tercih dönemi yönetim tarafından kapatıldı.');
+    const f = new FormData(e.target);
     const winterFirstStart=f.get('winterFirstStart'), winterSecondStart=f.get('winterSecondStart');
     const summerFirstStart=f.get('summerFirstStart'), summerSecondStart=f.get('summerSecondStart');
     if (![winterFirstStart,winterSecondStart].every(x=>isValidPreferenceSeason(x,'winter'))) return toast('Kış tercihleri yalnızca Ocak-Mayıs veya Ekim-Aralık aylarından başlamalıdır.');
@@ -1665,7 +1688,7 @@ function resultLabel(result) {
 }
 function renderLeavePlanning() {
   if (!hasPermission('leave.plan')) return goPage('dashboard');
-  const year = db.settings.leavePlanYear;
+  const year = getLeavePreferenceYear();
   const users = planningUsers();
   const preferences = db.leavePreferences.filter(x => x.year === year).map(normalizePreferenceRecord);
   const results = db.leavePlanResults.filter(x => x.year === year).map(normalizeLeavePlanResult);
@@ -1718,7 +1741,7 @@ function canAllocate(start, end, occupancy, capacity) { return dateRange(start, 
 function occupyRange(start, end, occupancy) { dateRange(start, end).forEach(date => { occupancy[date] = (occupancy[date] || 0) + 1; }); }
 function generateLeavePlan() {
   if (!hasPermission('leave.plan')) return;
-  const year=db.settings.leavePlanYear, capacity=concurrentLeaveCapacity(), occupancy={};
+  const year=getLeavePreferenceYear(), capacity=concurrentLeaveCapacity(), occupancy={};
   const ordered=planningUsers().slice().sort((a,b)=>(b.planningScore??0)-(a.planningScore??0)||a.name.localeCompare(b.name,'tr'));
   const results=[];
   const allocateSeason=(p,season)=>{
@@ -1742,7 +1765,7 @@ function generateLeavePlan() {
 function publishLeavePlan() { announceLeavePlan(); }
 function acceptLeavePreference(userId, season, choice) {
   if (!hasPermission('leave.plan')) return;
-  const year=db.settings.leavePlanYear, raw=db.leavePreferences.find(x=>x.userId===Number(userId)&&x.year===year); if(!raw)return;
+  const year=getLeavePreferenceYear(), raw=db.leavePreferences.find(x=>x.userId===Number(userId)&&x.year===year); if(!raw)return;
   const p=normalizePreferenceRecord(raw), prefix=season==='winter'?'winter':'summer', key=`${prefix}${choice===1?'First':'Second'}`;
   const start=p[`${key}Start`], end=p[`${key}End`]; if(!start||!end)return toast('Bu tercih tarihi girilmemiş.');
   let result=db.leavePlanResults.find(x=>x.userId===Number(userId)&&x.year===year);
@@ -1754,7 +1777,7 @@ function acceptLeavePreference(userId, season, choice) {
 function requestPreferenceAgain(userId) {
   if (!hasPermission('leave.plan')) return;
   userId=Number(userId); if(!userId)return toast('Önce personel seçin.');
-  const year=db.settings.leavePlanYear, p=db.leavePreferences.find(x=>x.userId===userId&&x.year===year); if(!p)return;
+  const year=getLeavePreferenceYear(), p=db.leavePreferences.find(x=>x.userId===userId&&x.year===year); if(!p)return;
   p.status='reselect';
   const old=db.leavePlanResults.find(x=>x.userId===userId&&x.year===year);
   if(old)Object.assign(old,{status:'reselect',announced:false,winterChoice:0,winterStart:'',winterEnd:'',winterStatus:'reselect',summerChoice:0,summerStart:'',summerEnd:'',summerStatus:'reselect'});
@@ -1763,7 +1786,7 @@ function requestPreferenceAgain(userId) {
 }
 function announceLeavePlan() {
   if (!hasPermission('leave.plan')) return;
-  const year=db.settings.leavePlanYear;
+  const year=getLeavePreferenceYear();
   const preferences=planningUsers().map(u=>normalizePreferenceRecord(db.leavePreferences.find(x=>x.userId===u.id&&x.year===year)));
   const complete=preferences.filter(p=>p&&p.status!=='reselect'&&p.winterFirstStart&&p.winterSecondStart&&p.summerFirstStart&&p.summerSecondStart).length;
   if(complete<planningUsers().length)return toast(`Sonuçlar açıklanamaz: ${planningUsers().length-complete} personelin 4 tercihi tamamlanmamış.`);
@@ -1893,7 +1916,7 @@ function reportHtml(type) {
     return `${head('Yıllık İzin Raporu')}<p class="report-note">Onaylanan gelecek izinler hemen kullanılmış izne düşmez. İzin başlangıcının ertesi günü ilk tamamlanan gün kullanılmış sayılır.</p><h3>İzin Bakiyeleri</h3><table><thead><tr><th>Personel</th><th>Yıllık Hak</th><th>Yıllık Kullanılan</th><th>Yıllık Kalan</th><th>Yol Hak</th><th>Yol Kullanılan</th><th>Yol Kalan</th></tr></thead><tbody>${summaryRows}</tbody></table><h3>Kullanılan İzin Tarihleri</h3><table><thead><tr><th>Personel</th><th>İzin Türü</th><th>Kullanılan Tarih Aralığı</th><th>Gün</th></tr></thead><tbody>${usedRows.join('') || '<tr><td colspan="4">Henüz kullanılmış izin kaydı bulunmuyor.</td></tr>'}</tbody></table>`;
   }
   if (type === 'planning') {
-    const year=db.settings.leavePlanYear;
+    const year=getLeavePreferenceYear();
     const winterRows=planningUsers().map(u=>{const p=normalizePreferenceRecord(db.leavePreferences.find(x=>x.userId===u.id&&x.year===year));const r=db.leavePlanResults.find(x=>x.userId===u.id&&x.year===year);return `<tr><td>${escapeHtml(u.name)}</td><td>${u.planningScore??0}</td><td>${p&&p.winterFirstStart?`${formatShortDate(p.winterFirstStart)} - ${formatShortDate(p.winterFirstEnd)}`:'—'}</td><td>${p&&p.winterSecondStart?`${formatShortDate(p.winterSecondStart)} - ${formatShortDate(p.winterSecondEnd)}`:'—'}</td><td>${r?resultSeasonLabel(r,'winter'):'—'}</td></tr>`}).join('');
     const summerRows=planningUsers().map(u=>{const p=normalizePreferenceRecord(db.leavePreferences.find(x=>x.userId===u.id&&x.year===year));const r=db.leavePlanResults.find(x=>x.userId===u.id&&x.year===year);return `<tr><td>${escapeHtml(u.name)}</td><td>${u.planningScore??0}</td><td>${p&&p.summerFirstStart?`${formatShortDate(p.summerFirstStart)} - ${formatShortDate(p.summerFirstEnd)}`:'—'}</td><td>${p&&p.summerSecondStart?`${formatShortDate(p.summerSecondStart)} - ${formatShortDate(p.summerSecondEnd)}`:'—'}</td><td>${r?resultSeasonLabel(r,'summer'):'—'}</td></tr>`}).join('');
     return `${head(`${year} İzin Planlama Raporu`)}<h3>❄️ Kış Dönemi · 10 Gün</h3><p class="report-note">Ocak-Mayıs ve Ekim-Aralık dönemlerinde ikişer tercih alınır.</p><table><thead><tr><th>Personel</th><th>İç Puan</th><th>Kış 1</th><th>Kış 2</th><th>Karar</th></tr></thead><tbody>${winterRows}</tbody></table><h3>☀️ Yaz Dönemi · 20 Gün</h3><p class="report-note">Haziran-Eylül dönemlerinde ikişer tercih alınır.</p><table><thead><tr><th>Personel</th><th>İç Puan</th><th>Yaz 1</th><th>Yaz 2</th><th>Karar</th></tr></thead><tbody>${summerRows}</tbody></table>`;
@@ -1933,21 +1956,38 @@ function downloadCsv(title) {
 
 function renderSettings() {
   if (!isAdmin()) return goPage('dashboard');
+  const preferenceYear = getLeavePreferenceYear();
+  const preferenceOpen = isLeavePreferenceOpen();
   document.getElementById('pageContent').innerHTML = `<div class="grid grid-2"><div class="card"><div class="card-header"><div><h3>PBYS sistem ayarları</h3><p>Ortak ayarlar Firestore settings/app belgesine yazılır.</p></div></div><div class="card-body"><form id="settingsForm">
     <label>Sistem adı<input name="systemName" value="${escapeHtml(db.settings.systemName || 'PBYS')}"></label>
     <label class="section-gap">Banka adı<input name="bankName" value="${escapeHtml(db.settings.bankName || '')}"></label>
     <label class="section-gap">Hesap sahibi<input name="accountName" value="${escapeHtml(db.settings.accountName)}"></label>
     <label class="section-gap">IBAN<input name="iban" value="${escapeHtml(db.settings.iban)}"></label>
     <label class="section-gap">Haftalık çamaşır kullanım limiti<input name="weeklyLaundryLimit" type="number" min="1" value="${db.settings.weeklyLaundryLimit}"></label>
-    <label class="section-gap">Yıllık izin planlama yılı<input name="leavePlanYear" type="number" min="2026" value="${db.settings.leavePlanYear}"></label>
+
+    <div class="settings-subsection section-gap">
+      <div class="settings-subsection-head"><div><strong>Yıllık İzin Tercih Dönemi</strong><span>Yılın sonlarına doğru personelin tercih formunu buradan açabilirsiniz.</span></div><span class="status-pill ${preferenceOpen ? 'open' : 'closed'}">${preferenceOpen ? 'AÇIK' : 'KAPALI'}</span></div>
+      <label class="setting-switch-row"><span><strong>Personel tercih formu</strong><small>Kapalıyken personel mevcut tercihlerini görür ancak değiştiremez veya yeni tercih gönderemez.</small></span><input type="checkbox" name="leavePreferenceOpen" ${preferenceOpen ? 'checked' : ''}><i></i></label>
+      <label class="section-gap">Tercih / planlama yılı<input name="leavePreferenceYear" type="number" min="2026" max="2100" value="${preferenceYear}"><small class="form-note">Tercihler ve yönetim değerlendirmesi bu yıl üzerinden yürütülür.</small></label>
+    </div>
+
     <label class="section-gap">Aynı anda izinli azami oran (%)<input name="leaveConcurrentPercent" type="number" min="1" max="100" value="${db.settings.leaveConcurrentPercent || 25}"></label>
     <label class="section-gap">2. tercih kabul puan bonusu<input name="planningSecondChoiceBonus" type="number" min="0" value="${db.settings.planningSecondChoiceBonus ?? 20}"></label>
     <button class="btn btn-primary section-gap">Ayarları Kaydet</button></form></div></div>
-    <div class="card"><div class="card-header"><div><h3>Firebase / Firestore</h3><p>Veriler site üzerinden yönetilir.</p></div></div><div class="card-body"><div class="firebase-card"><strong>Proje: ${escapeHtml(window.FirebaseBridge?.projectId || 'gencservi-5d47e')}</strong><span>Kullanıcı, yemek, izin, yoklama, ödeme, arıza ve çamaşır verileri Firestore koleksiyonlarında tutulur.</span><div class="sync-actions"><button class="btn btn-primary btn-sm" onclick="refreshFromCloud()">Buluttan Yenile</button><button class="btn btn-secondary btn-sm" onclick="exportBackup()">JSON Yedek İndir</button></div></div><p class="form-note section-gap">Test aşamasından sonra Firestore Security Rules rol/yetki sistemine göre kilitlenmelidir.</p></div></div></div>`;
+    <div class="card"><div class="card-header"><div><h3>Firebase / Firestore</h3><p>Veriler site üzerinden yönetilir.</p></div></div><div class="card-body"><div class="firebase-card"><strong>Proje: ${escapeHtml(window.FirebaseBridge?.projectId || 'gencservi-5d47e')}</strong><span>Kullanıcı, yemek, izin, yoklama, ödeme, arıza ve çamaşır verileri Firestore koleksiyonlarında tutulur.</span><div class="sync-actions"><button class="btn btn-primary btn-sm" onclick="refreshFromCloud()">Buluttan Yenile</button><button class="btn btn-secondary btn-sm" onclick="exportBackup()">JSON Yedek İndir</button></div></div><p class="form-note section-gap">Yıllık izin tercih dönemi ayarı Firestore üzerinden tüm kullanıcı cihazlarına anlık olarak yansır.</p></div></div></div>`;
   document.getElementById('settingsForm').addEventListener('submit', e => {
     e.preventDefault(); const f=new FormData(e.target);
-    db.settings={...db.settings,systemName:f.get('systemName'),bankName:f.get('bankName'),accountName:f.get('accountName'),iban:f.get('iban'),weeklyLaundryLimit:Number(f.get('weeklyLaundryLimit')),leavePlanYear:Number(f.get('leavePlanYear')),leaveConcurrentPercent:Number(f.get('leaveConcurrentPercent')),planningSecondChoiceBonus:Number(f.get('planningSecondChoiceBonus'))};
-    saveDB();toast('Sistem ayarları kaydedildi.');
+    const preferenceYear = Number(f.get('leavePreferenceYear'));
+    db.settings={...db.settings,
+      systemName:f.get('systemName'),bankName:f.get('bankName'),accountName:f.get('accountName'),iban:f.get('iban'),
+      weeklyLaundryLimit:Number(f.get('weeklyLaundryLimit')),
+      leavePreferenceOpen:f.get('leavePreferenceOpen') === 'on',
+      leavePreferenceYear:preferenceYear,
+      leavePlanYear:preferenceYear,
+      leaveConcurrentPercent:Number(f.get('leaveConcurrentPercent')),
+      planningSecondChoiceBonus:Number(f.get('planningSecondChoiceBonus'))
+    };
+    saveDB();toast(`Sistem ayarları kaydedildi. Yıllık izin tercih dönemi ${db.settings.leavePreferenceOpen ? 'açıldı' : 'kapatıldı'}.`);renderSettings();
   });
 }
 function exportBackup() { const blob = new Blob([JSON.stringify(db, null, 2)], { type: 'application/json' }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'gencservi-v6-firestore-yedek.json'; a.click(); URL.revokeObjectURL(a.href); toast('Yedek dosyası indirildi.'); }
