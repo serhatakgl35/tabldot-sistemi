@@ -1,22 +1,18 @@
-# PBYS V8.8 – Yetkili Firestore / Güvenli Oturum
+[README.md](https://github.com/user-attachments/files/30943802/README.md)
+# PBYS V9.0 — Kurumsal Arayüz
 
-Bu paket V8.7 özelliklerini korur ve giriş ekranında görülen `Missing or insufficient permissions` sorununun kalıcı çözümü için veri erişim akışını değiştirir.
+Bu sürümde V8.8 işlevleri korunarak arayüz kurumsal/premium tasarım sistemine taşındı.
 
-## V8.8 güvenlik değişiklikleri
-- Firebase Authentication doğrulanmadan Firestore okuması yapılmaz.
-- `users` ve `settings` giriş ekranında sorgulanmaz.
-- Oturumdan sonra koleksiyonlar rol ve özel yetkiye göre yüklenir.
-- Personel kendi borç, ödeme, izin, yıllık tercih ve yoklama verisini görür.
-- Yetkili roller gerekli yönetim koleksiyonlarını okuyabilir.
-- `weeklyActivities` ve `dailyMenus` tüm onaylı personele okunur; yazma işlemleri `activity.manage` ve `menu.manage` özel yetkileri ile korunur.
-- Firestore verileri localStorage içinde kalıcı tutulmaz; çıkışta yerel veri belleği temizlenir.
-- İlk Admin oluşturma ekranı üretim güvenliği nedeniyle devre dışıdır; mevcut Admin hesabı kullanılmalıdır.
+## Görsel yenilikler
+- Baştan tasarlanan giriş ekranı
+- Kurumsal lacivert + turkuaz görsel kimlik
+- Emoji yerine modern SVG yan menü ikonları
+- Daha güçlü tipografi ve görsel hiyerarşi
+- Modern kartlar, tablolar, butonlar ve formlar
+- Cam efektli üst bar ve daha rafine durum göstergeleri
+- Mobil menü/çıkış davranışları korunarak daha iyi telefon görünümü
+- Menü dışına dokununca kapanma davranışı korunur
+- Mevcut Firebase/Firestore ve işlevsel kodlar korunmuştur
 
-## Kurulum
-GitHub'a en az `index.html`, `app.js`, `firebase.js`, `styles.css` dosyalarını yükleyin.
-
-Ardından Firebase Console > Firestore Database > Rules bölümünde `firestore.rules` içeriğini yayınlayın.
-Ayrıntılı adımlar `FIRESTORE_RULES_KURULUM.txt` dosyasındadır.
-
-## Not
-Mevcut Firestore koleksiyonlarını veya Firebase Authentication kullanıcılarını silmeyin.
+## GitHub yükleme
+index.html, styles.css ve app.js dosyalarını birlikte güncelleyin. firebase.js işlevsel olarak değişmedi ancak paket içinde tam sürüm olarak bulunur.
