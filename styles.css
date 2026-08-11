@@ -977,3 +977,36 @@ input:hover,select:hover,textarea:hover{border-color:#cfd8e3}input:focus,select:
   .commander-leave-summary{grid-template-columns:1fr 1fr!important}.commander-leave-summary>div{padding:11px}.commander-leave-summary strong{font-size:23px}
 }
 @media(max-width:390px){.commander-leave-summary{grid-template-columns:1fr!important}.page-content{padding-left:11px;padding-right:11px}}
+
+
+/* V9.1 · Mobil modal kaydırma düzeltmesi */
+.modal{
+  display:flex;
+  flex-direction:column;
+  max-height:min(88dvh, 900px);
+  overflow:hidden;
+}
+.modal-header{
+  flex:0 0 auto;
+}
+.modal-body{
+  flex:1 1 auto;
+  min-height:0;
+  overflow-y:auto;
+  overscroll-behavior:contain;
+  -webkit-overflow-scrolling:touch;
+}
+@media (max-width:700px){
+  .modal-backdrop{
+    align-items:flex-start;
+    padding:18px 12px max(18px, env(safe-area-inset-bottom));
+  }
+  .modal{
+    width:100%;
+    max-height:calc(100dvh - 36px - env(safe-area-inset-bottom));
+    border-radius:22px;
+  }
+  .modal-body{
+    padding-bottom:calc(26px + env(safe-area-inset-bottom));
+  }
+}

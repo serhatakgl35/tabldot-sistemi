@@ -1,18 +1,17 @@
-[README.md](https://github.com/user-attachments/files/30943802/README.md)
-# PBYS V9.0 — Kurumsal Arayüz
+# PBYS V9.2
 
-Bu sürümde V8.8 işlevleri korunarak arayüz kurumsal/premium tasarım sistemine taşındı.
+Bu sürüm V9.1 üzerine hazırlanmıştır.
 
-## Görsel yenilikler
-- Baştan tasarlanan giriş ekranı
-- Kurumsal lacivert + turkuaz görsel kimlik
-- Emoji yerine modern SVG yan menü ikonları
-- Daha güçlü tipografi ve görsel hiyerarşi
-- Modern kartlar, tablolar, butonlar ve formlar
-- Cam efektli üst bar ve daha rafine durum göstergeleri
-- Mobil menü/çıkış davranışları korunarak daha iyi telefon görünümü
-- Menü dışına dokununca kapanma davranışı korunur
-- Mevcut Firebase/Firestore ve işlevsel kodlar korunmuştur
+## Değişiklikler
+- Karakol Komutanı rolünden Yoklama Girişi yetkisi kaldırıldı; Yoklama Özeti görüntüleme devam eder.
+- Ana Sayfa üzerindeki Menü Oluştur / Düzenle butonu kaldırıldı; ana sayfa menüyü yalnızca görüntüler.
+- Aşçı Yemek Ekranı, “Aşçı İşlemleri” olarak güncellendi.
+- Günlük Menü Yönetimi Aşçı İşlemleri ekranına taşındı.
+- `menu.manage` özel yetkisi olan kullanıcı, Aşçı rolü olmasa dahi Aşçı İşlemleri ekranından menü oluşturabilir/düzenleyebilir.
+- Kayıtlı menü tarih seçilerek tekrar yüklenir ve düzenlenebilir.
+- Ana Sayfada 00:00–18:59 arasında “Bugünün Yemek Menüsü” gösterilir.
+- 19:00–23:59 arasında ertesi günün menüsü “Yarının Yemek Menüsü” başlığıyla gösterilir.
+- Sayfa açık kalırsa 19:00 ve 00:00 geçişlerinde menü kartı otomatik yenilenir.
+- V9.1 mobil Rol / Yetki modal kaydırma ve Admin personel silme düzenlemeleri korunur.
 
-## GitHub yükleme
-index.html, styles.css ve app.js dosyalarını birlikte güncelleyin. firebase.js işlevsel olarak değişmedi ancak paket içinde tam sürüm olarak bulunur.
+GitHub'a `index.html`, `app.js`, `styles.css` dosyalarını birlikte yükleyin. `firebase.js` değişmedi ancak tam paket içinde yer alır.

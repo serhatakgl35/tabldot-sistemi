@@ -68,7 +68,7 @@ function getNavGroups() {
     ['laundry', '🧺', 'Çamaşır Randevusu'],
     ['profile', '👤', 'Profilim']
   ];
-  if (hasPermission('kitchen.view')) personal.splice(2, 0, ['cook-dashboard', '👨‍🍳', 'Aşçı Yemek Ekranı']);
+  if (hasPermission('kitchen.view') || hasPermission('menu.manage')) personal.splice(2, 0, ['cook-dashboard', '👨‍🍳', 'Aşçı İşlemleri']);
 
   const management = [];
   if (hasPermission('personnel.view')) management.push(['members', '👥', 'Personel Listesi']);
@@ -615,36 +615,79 @@ function renderMenuItems(value) {
   const items = menuTextLines(value);
   return items.length ? `<ul class="dashboard-menu-list">${items.map(x => `<li>${escapeHtml(x)}</li>`).join('')}</ul>` : '<div class="menu-empty">Menü henüz girilmedi.</div>';
 }
+function dashboardMenuDisplayInfo(now = new Date()) {
+  const showTomorrow = now.getHours() >= 19;
+  const target = showTomorrow ? addDays(now, 1) : now;
+  return { date: toISO(target), showTomorrow, title: showTomorrow ? 'Yarının Yemek Menüsü' : 'Bugünün Yemek Menüsü' };
+}
+function scheduleDashboardMenuRefresh() {
+  clearTimeout(window.dashboardMenuRefreshTimer);
+  const now = new Date();
+  let next;
+  if (now.getHours() < 19) next = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 19, 0, 1);
+  else next = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 1);
+  const delay = Math.max(1000, next.getTime() - now.getTime());
+  window.dashboardMenuRefreshTimer = setTimeout(() => {
+    if (currentPage === 'dashboard' && currentUser) renderDashboard();
+  }, delay);
+}
 function renderTodayMenuCard() {
-  const date = toISO(new Date());
+  const info = dashboardMenuDisplayInfo();
+  const date = info.date;
   const menu = todayMenuRecord(date);
   const hasMenu = menuTextLines(menu.breakfast).length || menuTextLines(menu.dinner).length;
   return `<div class="card dashboard-menu-card section-gap">
-    <div class="card-header"><div><h3>🍲 Bugünün Menüsü</h3><p>${formatDayDate(date)}</p></div>${hasPermission('menu.manage') ? `<button class="btn btn-primary btn-sm" onclick="dailyMenuModal('${date}')">${hasMenu ? 'Menüyü Düzenle' : 'Menü Oluştur'}</button>` : ''}</div>
+    <div class="card-header"><div><h3>🍲 ${info.title}</h3><p>${formatDayDate(date)}</p></div></div>
     <div class="card-body dashboard-menu-grid">
       <section><div class="dashboard-menu-title"><span>☕</span><strong>Sabah</strong></div>${renderMenuItems(menu.breakfast)}</section>
       <section><div class="dashboard-menu-title"><span>🍽</span><strong>Akşam</strong></div>${renderMenuItems(menu.dinner)}</section>
     </div>
-    ${!hasMenu ? '<div class="card-body menu-info-note">Bugünün menüsü henüz oluşturulmadı.</div>' : ''}
+    ${!hasMenu ? `<div class="card-body menu-info-note">${info.showTomorrow ? 'Yarının' : 'Bugünün'} menüsü henüz oluşturulmadı.</div>` : ''}
   </div>`;
 }
-function dailyMenuModal(date = toISO(new Date())) {
+function dailyMenuModal(date = toISO(cookDateCursor || new Date())) {
   if (!hasPermission('menu.manage')) return toast('Günlük menü yönetimi yetkiniz yok.');
   const menu = todayMenuRecord(date);
   showModal('Günlük Yemek Menüsü', `<form id="dailyMenuForm" class="form-grid">
     <label class="span-2">Tarih<input name="date" type="date" value="${date}" required></label>
     <label class="span-2">Sabah menüsü<textarea name="breakfast" placeholder="Her yemeği ayrı satıra yazabilirsiniz">${escapeHtml(menu.breakfast || '')}</textarea></label>
     <label class="span-2">Akşam menüsü<textarea name="dinner" placeholder="Her yemeği ayrı satıra yazabilirsiniz">${escapeHtml(menu.dinner || '')}</textarea></label>
-    <div class="span-2 form-hint">Bu menü tüm personelin Ana Sayfasında görüntülenir.</div>
-    <div class="span-2"><button class="btn btn-primary btn-block">Menüyü Kaydet</button></div>
+    <div class="span-2 form-hint">Kayıtlı bir tarih seçerseniz mevcut menü yüklenir ve yeniden kaydederek düzenleyebilirsiniz.</div>
+    <div class="span-2"><button class="btn btn-primary btn-block">Menüyü Kaydet / Güncelle</button></div>
   </form>`);
-  document.getElementById('dailyMenuForm').addEventListener('submit', e => {
+  const form = document.getElementById('dailyMenuForm');
+  const dateInput = form.elements.date;
+  const breakfastInput = form.elements.breakfast;
+  const dinnerInput = form.elements.dinner;
+  dateInput.addEventListener('change', () => {
+    const existing = todayMenuRecord(String(dateInput.value));
+    breakfastInput.value = existing.breakfast || '';
+    dinnerInput.value = existing.dinner || '';
+  });
+  form.addEventListener('submit', e => {
     e.preventDefault(); const f = new FormData(e.target); const targetDate = String(f.get('date'));
     db.dailyMenus ||= {};
+    const existed = !!db.dailyMenus[targetDate];
     db.dailyMenus[targetDate] = { breakfast: String(f.get('breakfast') || '').trim(), dinner: String(f.get('dinner') || '').trim(), updatedBy: currentUser.id, updatedAt: new Date().toISOString() };
-    logAudit('menu.update', `${targetDate} günlük menüsü güncellendi.`);
-    saveDB(); closeModal(); renderDashboard(); toast('Günlük menü kaydedildi.');
+    logAudit(existed ? 'menu.update' : 'menu.create', `${targetDate} günlük menüsü ${existed ? 'güncellendi' : 'oluşturuldu'}.`);
+    saveDB(); closeModal();
+    if (currentPage === 'cook-dashboard') renderCookDashboard();
+    else if (currentPage === 'dashboard') renderDashboard();
+    toast(existed ? 'Günlük menü güncellendi.' : 'Günlük menü oluşturuldu.');
   });
+}
+function renderKitchenMenuManagement(date) {
+  const menu = todayMenuRecord(date);
+  const hasMenu = menuTextLines(menu.breakfast).length || menuTextLines(menu.dinner).length;
+  const canManage = hasPermission('menu.manage');
+  return `<div class="card kitchen-menu-management section-gap">
+    <div class="card-header"><div><h3>🍲 Günlük Menü Yönetimi</h3><p>${formatDayDate(date)} · Sabah ve akşam menüsünü buradan yönetin.</p></div>${canManage ? `<button class="btn btn-primary btn-sm" onclick="dailyMenuModal('${date}')">${hasMenu ? 'Menüyü Düzenle' : 'Menü Oluştur'}</button>` : ''}</div>
+    <div class="card-body dashboard-menu-grid">
+      <section><div class="dashboard-menu-title"><span>☕</span><strong>Sabah</strong></div>${renderMenuItems(menu.breakfast)}</section>
+      <section><div class="dashboard-menu-title"><span>🍽</span><strong>Akşam</strong></div>${renderMenuItems(menu.dinner)}</section>
+    </div>
+    ${canManage ? '<div class="card-body menu-info-note">Bu ekran menü oluşturma ve düzenleme alanıdır. Ana Sayfa yalnızca personelin menüyü görmesi için kullanılır.</div>' : '<div class="card-body menu-info-note">Menüyü görüntüleyebilirsiniz. Düzenlemek için “Günlük Menü Yönetimi” özel yetkisi gerekir.</div>'}
+  </div>`;
 }
 function activitiesForRange(start, end) {
   return (db.weeklyActivities || []).filter(x => x.date >= start && x.date <= end).slice().sort((a,b) => `${a.date} ${a.time || ''} ${a.title || ''}`.localeCompare(`${b.date} ${b.time || ''} ${b.title || ''}`, 'tr'));
@@ -706,6 +749,7 @@ function renderCommanderLeaveStatusCard() {
 }
 
 function renderDashboard() {
+  scheduleDashboardMenuRefresh();
   const ownDebt = db.debts.filter(x => x.userId === currentUser.id).reduce((s, x) => s + Math.max(0, x.amount - x.paid), 0);
   const remaining = getRemainingLeave(currentUser);
   const preference = db.leavePreferences.find(x => x.userId === currentUser.id && x.year === db.settings.leavePlanYear);
@@ -791,12 +835,40 @@ function renderMembers() {
       <div class="table-wrap"><table><thead><tr><th>Ad soyad</th><th>Telefon</th><th>Rol</th><th>Görev</th><th>Yıllık kalan</th><th>Yol kalan</th><th>İşlem</th></tr></thead><tbody>${active.map(u => `<tr><td><button class="person-link" onclick="openPersonnelLeaves(${u.id})">${escapeHtml(u.name)}</button></td><td>${u.phone}</td><td>${escapeHtml(userRoleLabels(u))}</td><td>${escapeHtml(u.title)}</td><td>${getRemainingLeave(u)} gün</td><td>${getRoadRemaining(u)} gün</td><td>
         <button class="btn btn-secondary btn-sm" onclick="openPersonnelLeaves(${u.id})">İzinleri</button>
         ${(isAdmin() || hasPermission('leave.manage')) ? `<button class="btn btn-secondary btn-sm" onclick="editMemberModal(${u.id})">Bilgileri Düzenle</button>` : ''}
-        ${isAdmin() ? `<button class="btn btn-primary btn-sm" onclick="roleModal(${u.id})">Rol / Yetki</button>` : ''}
+        ${isAdmin() ? `<button class="btn btn-primary btn-sm" onclick="roleModal(${u.id})">Rol / Yetki</button> <button class="btn btn-danger btn-sm" onclick="deletePersonnel(${u.id})">Personeli Sil</button>` : ''}
       </td></tr>`).join('')}</tbody></table></div>
     </div>`;
 }
 function approveMember(id) { if (!isAdmin()) return; const u = getUser(id); if (u) { u.approved = true; u.rejected = false; saveDB(); renderMembers(); toast('Üyelik onaylandı.'); } }
 function rejectMember(id) { if (!isAdmin()) return; const u = getUser(id); if (u) { u.approved = false; u.rejected = true; saveDB(); renderMembers(); toast('Başvuru reddedildi. Firebase Authentication hesabı güvenlik nedeniyle silinmedi.'); } }
+
+function deletePersonnel(userId) {
+  if (!isAdmin()) return;
+  const user = getUser(userId); if (!user) return;
+  if (user.id === currentUser?.id) return toast('Kendi personel kaydınızı silemezsiniz.');
+  if (userRoles(user).includes('admin')) {
+    const otherAdmins = approvedUsers().filter(u => u.id !== user.id && userRoles(u).includes('admin'));
+    if (!otherAdmins.length) return toast('Sistemdeki son admin personel kaydı silinemez.');
+  }
+  const warning = `${user.name} personel kaydı sistemden silinecek. Bu işlem kullanıcının PBYS profilini ve kullanıcıya bağlı izin, yoklama, yemek tercihi, borç/ödeme, çamaşır ve yıllık izin planlama kayıtlarını kaldırır.\n\nDevam etmek istiyor musunuz?`;
+  if (!confirm(warning)) return;
+
+  db.users = db.users.filter(u => u.id !== user.id);
+  delete db.mealSelections?.[user.id];
+  db.payments = (db.payments || []).filter(x => x.userId !== user.id);
+  db.debts = (db.debts || []).filter(x => x.userId !== user.id);
+  db.leaveRequests = (db.leaveRequests || []).filter(x => x.userId !== user.id);
+  db.leavePreferences = (db.leavePreferences || []).filter(x => x.userId !== user.id);
+  db.leavePlanResults = (db.leavePlanResults || []).filter(x => x.userId !== user.id);
+  db.laundry = (db.laundry || []).filter(x => x.userId !== user.id);
+  db.laundryFaults = (db.laundryFaults || []).filter(x => x.userId !== user.id && x.reporterId !== user.id);
+  db.attendance = (db.attendance || []).filter(x => x.userId !== user.id);
+  logAudit('personnel.delete', `${user.name} personel kaydı admin tarafından silindi`);
+  saveDB();
+  renderMembers();
+  renderNav();
+  toast('Personel kaydı silindi. Firebase Authentication hesabı ayrıca yönetici backendinden silinmelidir.');
+}
 function newMemberModal() {
   if (!isAdmin()) return;
   showModal('Yeni Personel Ekle', `<form id="newMemberForm" class="form-grid">
@@ -1219,19 +1291,34 @@ function kitchenMealCard(date, meal) {
   </article>`;
 }
 function renderCookDashboard() {
-  if (!hasCookPermission()) return goPage('dashboard');
+  const canViewKitchen = hasCookPermission();
+  const canManageMenu = hasPermission('menu.manage');
+  if (!canViewKitchen && !canManageMenu) return goPage('dashboard');
   const date = toISO(cookDateCursor);
+  const menuManagement = renderKitchenMenuManagement(date);
+
+  if (!canViewKitchen) {
+    document.getElementById('pageContent').innerHTML = `
+      <div class="kitchen-topbar">
+        <div><span class="kitchen-eyebrow">AŞÇI İŞLEMLERİ</span><h2>${formatDayDate(date)}</h2><p>Günlük yemek menüsünü oluşturup daha sonra aynı ekrandan düzenleyebilirsiniz.</p></div>
+        <div class="calendar-actions kitchen-date-actions"><button class="btn btn-secondary btn-sm" onclick="changeCookDate(-1)">‹ Önceki Gün</button><button class="btn btn-secondary btn-sm" onclick="goTodayCookDate()">Bugün</button><input type="date" value="${date}" onchange="setCookDate(this.value)" aria-label="Menü tarihi"><button class="btn btn-primary btn-sm" onclick="changeCookDate(1)">Sonraki Gün ›</button></div>
+      </div>
+      ${menuManagement}`;
+    return;
+  }
+
   const stats = ['breakfast', 'dinner'].map(meal => cookMealStats(date, meal));
   const totalPrepared = stats.reduce((sum, x) => sum + x.prepared, 0);
   const totalDuty = stats.reduce((sum, x) => sum + x.duty, 0);
   const totalLeave = stats.reduce((sum, x) => sum + x.leave, 0);
   document.getElementById('pageContent').innerHTML = `
     <div class="kitchen-topbar">
-      <div><span class="kitchen-eyebrow">GÜNLÜK MUTFAK PLANI</span><h2>${formatDayDate(date)}</h2><p>Tercih yapmayan personel varsayılan olarak yiyecek kabul edilir; Görevdeyim / Ayır da hazırlanacak sayıya dahildir.</p></div>
+      <div><span class="kitchen-eyebrow">AŞÇI İŞLEMLERİ · GÜNLÜK MUTFAK PLANI</span><h2>${formatDayDate(date)}</h2><p>Tercih yapmayan personel varsayılan olarak yiyecek kabul edilir; Görevdeyim / Ayır da hazırlanacak sayıya dahildir.</p></div>
       <div class="calendar-actions kitchen-date-actions"><button class="btn btn-secondary btn-sm" onclick="changeCookDate(-1)">‹ Önceki Gün</button><button class="btn btn-secondary btn-sm" onclick="goTodayCookDate()">Bugün</button><input type="date" value="${date}" onchange="setCookDate(this.value)" aria-label="Mutfak tarihi"><button class="btn btn-primary btn-sm" onclick="changeCookDate(1)">Sonraki Gün ›</button></div>
     </div>
+    ${menuManagement}
     <div class="grid grid-4 section-gap kitchen-overview">
-      ${metric('🍽', 'Toplam hazırlanacak', totalPrepared + ' öğün', 'Üç öğünün toplamı')}
+      ${metric('🍽', 'Toplam hazırlanacak', totalPrepared + ' öğün', 'İki öğünün toplamı')}
       ${metric('📦', 'Görev için ayrılacak', totalDuty + ' paket', 'Görevdeyim / Ayır seçimleri')}
       ${metric('👥', 'Aktif personel', approvedUsers().length + ' kişi', 'Her öğün için değerlendirilen')}
       ${metric('🏖️', 'Yıllık izin düşümü', totalLeave + ' öğün', 'Onaylı yıllık izin nedeniyle hazırlanmayacak')}
