@@ -1,3 +1,9 @@
+# PBYS V9.2.1 Hotfix
+
+Bu sürüm V9.2 giriş hatasını giderir. Çamaşır makinesi canlı kullanım/kronometre kayıtları artık yeni bir Firestore koleksiyonu istemez; mevcut `laundryReservations` koleksiyonunda `run_` önekli belgeler olarak tutulur. Böylece mevcut Firestore izinleriyle uyumluluk korunur.
+
+V9.2 özellikleri korunmuştur.
+
 # PBYS V9.2 — Toplu Güncelleme
 
 Bu sürüm V9.1 temel alınarak son toplu talepler uygulanmıştır.

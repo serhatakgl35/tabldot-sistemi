@@ -61,7 +61,6 @@ const COLLECTIONS = {
   leavePreferences: 'leavePreferences',
   leavePlanResults: 'leavePlanResults',
   laundry: 'laundryReservations',
-  laundryRuns: 'laundryRuns',
   laundryFaults: 'laundryFaults',
   attendance: 'attendance',
   auditLogs: 'auditLogs',
@@ -94,7 +93,9 @@ function firebaseErrorMessage(error) {
     'auth/weak-password': 'Şifre en az 6 karakter olmalıdır.',
     'auth/too-many-requests': 'Çok fazla deneme yapıldı. Bir süre sonra tekrar deneyin.',
     'auth/network-request-failed': 'Firebase bağlantısı kurulamadı. İnternet bağlantınızı kontrol edin.',
-    'auth/operation-not-allowed': 'Firebase Authentication içinde Email/Password giriş yöntemi henüz etkinleştirilmemiş.'
+    'auth/operation-not-allowed': 'Firebase Authentication içinde Email/Password giriş yöntemi henüz etkinleştirilmemiş.',
+    'permission-denied': 'Firestore erişim izni reddedildi. Sistem yöneticisi veri yetkilerini kontrol etmelidir.',
+    'firestore/permission-denied': 'Firestore erişim izni reddedildi. Sistem yöneticisi veri yetkilerini kontrol etmelidir.'
   };
   return map[code] || error?.message || 'Firebase işlemi tamamlanamadı.';
 }
@@ -278,7 +279,7 @@ function stateToMaps(state) {
   maps.leavePreferences = arrayMap(state.leavePreferences, x => `${x.userId}_${x.year}`);
   maps.leavePlanResults = arrayMap(state.leavePlanResults, x => `${x.userId}_${x.year}`);
   maps.laundry = arrayMap(state.laundry);
-  maps.laundryRuns = arrayMap(state.laundryRuns);
+  maps.laundryRuns = new Map((state.laundryRuns || []).map(x => [`run_${x.id}`, clean({ ...x, _pbysType: 'run', _docId: undefined })]));
   maps.laundryFaults = arrayMap(state.laundryFaults);
   maps.attendance = arrayMap(state.attendance);
   maps.auditLogs = arrayMap(state.auditLogs);
@@ -308,7 +309,7 @@ async function saveState(state) {
   const next = stateToMaps(state);
   if (!lastMaps) lastMaps = await currentCloudMaps();
   const ops = [];
-  const collectionMap = { ...COLLECTIONS, settings: 'settings' };
+  const collectionMap = { ...COLLECTIONS, laundryRuns: COLLECTIONS.laundry, settings: 'settings' };
 
   Object.entries(next).forEach(([key, nextMap]) => {
     const oldMap = lastMaps[key] || new Map();
@@ -336,7 +337,7 @@ async function loadState(updateSnapshot = true) {
   const settingsSnap = await getDoc(doc(firestore, 'settings', 'app'));
   const state = emptyState(settingsSnap.exists() ? settingsSnap.data() : await ensureSettings());
 
-  const [users, meals, expenses, payments, debts, leaves, prefs, plans, laundry, laundryRuns, laundryFaults, attendance, audits, activities, menus] = await Promise.all([
+  const [users, meals, expenses, payments, debts, leaves, prefs, plans, laundryAll, laundryFaults, attendance, audits, activities, menus] = await Promise.all([
     collectionData(COLLECTIONS.users),
     collectionData(COLLECTIONS.mealChoices),
     collectionData(COLLECTIONS.expenses),
@@ -346,7 +347,6 @@ async function loadState(updateSnapshot = true) {
     collectionData(COLLECTIONS.leavePreferences),
     collectionData(COLLECTIONS.leavePlanResults),
     collectionData(COLLECTIONS.laundry),
-    collectionData(COLLECTIONS.laundryRuns),
     collectionData(COLLECTIONS.laundryFaults),
     collectionData(COLLECTIONS.attendance),
     collectionData(COLLECTIONS.auditLogs),
@@ -366,8 +366,8 @@ async function loadState(updateSnapshot = true) {
   state.leaveRequests = strip(leaves);
   state.leavePreferences = strip(prefs);
   state.leavePlanResults = strip(plans);
-  state.laundry = strip(laundry);
-  state.laundryRuns = strip(laundryRuns);
+  state.laundry = strip(laundryAll.filter(x => x._pbysType !== 'run'));
+  state.laundryRuns = strip(laundryAll.filter(x => x._pbysType === 'run')).map(({ _pbysType, ...x }) => x);
   state.laundryFaults = strip(laundryFaults);
   state.attendance = strip(attendance);
   state.auditLogs = strip(audits).sort((a, b) => String(b.at || '').localeCompare(String(a.at || ''))).slice(0, 500);
