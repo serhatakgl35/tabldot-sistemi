@@ -94,9 +94,10 @@ function createEmptyDB() {
   };
 }
 function loadDB() {
-  // V8.8 güvenlik: Firestore verileri tarayıcı localStorage içinde kalıcı tutulmaz.
-  // Kullanıcı oturum açtıktan sonra yetkisine göre buluttan yüklenir.
-  try { localStorage.removeItem(APP_KEY); } catch (_) {}
+  try {
+    const stored = JSON.parse(localStorage.getItem(APP_KEY));
+    if (stored) return ensureV6Data(stored);
+  } catch (_) {}
   return createEmptyDB();
 }
 function ensureV6Data(data) {
@@ -146,6 +147,7 @@ function setCloudStatus(state, text) {
 }
 function applyCloudState(nextState, rerender = true) {
   db = ensureV6Data(nextState);
+  localStorage.setItem(APP_KEY, JSON.stringify(db));
   const authUid = window.FirebaseBridge?.currentAuthUser()?.uid;
   if (authUid) {
     const fresh = db.users.find(u => u.uid === authUid);
@@ -157,6 +159,7 @@ function applyCloudState(nextState, rerender = true) {
   }
 }
 function saveDB() {
+  localStorage.setItem(APP_KEY, JSON.stringify(db));
   if (!firebaseBooted || !currentUser || !window.FirebaseBridge) return;
   const snapshot = structuredClone(db);
   setCloudStatus('', 'Senkronize ediliyor');
@@ -238,23 +241,17 @@ async function bootFirebase() {
   try {
     await firebaseReadyPromise();
     firebaseBooted = true;
-    document.getElementById('bootstrapBox')?.classList.add('hidden');
-    setCloudStatus('', 'Kimlik doğrulanıyor');
-
-    // V8.8: Giriş yapılmadan Firestore koleksiyonlarına hiçbir okuma gönderilmez.
+    setCloudStatus('', 'Firestore kontrol ediliyor');
+    await window.FirebaseBridge.ensureSettings();
+    const hasAdmin = await window.FirebaseBridge.hasAnyAdmin();
+    document.getElementById('bootstrapBox').classList.toggle('hidden', hasAdmin);
     const authUser = await window.FirebaseBridge.waitForAuthState();
-    if (!authUser) {
-      setCloudStatus('online', 'Firebase hazır');
-      return;
+    if (authUser) {
+      const profile = await window.FirebaseBridge.getUserProfile(authUser.uid);
+      if (profile?.approved && !profile?.rejected) await enterAuthenticatedApp(profile);
+      else await window.FirebaseBridge.signOut();
     }
-
-    const profile = await window.FirebaseBridge.getUserProfile(authUser.uid);
-    if (profile?.approved && !profile?.rejected) {
-      await enterAuthenticatedApp(profile);
-    } else {
-      await window.FirebaseBridge.signOut();
-      setCloudStatus('online', 'Firebase hazır');
-    }
+    setCloudStatus('online', 'Firestore bağlı');
   } catch (error) {
     console.error(error);
     setCloudStatus('offline', 'Firebase bağlantı hatası');
@@ -262,8 +259,8 @@ async function bootFirebase() {
   }
 }
 async function enterAuthenticatedApp(profile) {
-  setCloudStatus('', 'Yetkili veriler yükleniyor');
-  const cloudState = await window.FirebaseBridge.loadState(profile);
+  setCloudStatus('', 'Veriler yükleniyor');
+  const cloudState = await window.FirebaseBridge.loadState();
   applyCloudState(cloudState, false);
   const freshProfile = db.users.find(u => u.uid === profile.uid) || profile;
   if (!freshProfile.approved || freshProfile.rejected) {
@@ -271,28 +268,28 @@ async function enterAuthenticatedApp(profile) {
     throw new Error(freshProfile.rejected ? 'Üyelik başvurunuz reddedildi.' : 'Üyeliğiniz henüz onaylanmadı.');
   }
   login(freshProfile);
-  window.FirebaseBridge.startRealtime(freshProfile, nextState => applyCloudState(nextState, true));
+  window.FirebaseBridge.startRealtime(nextState => applyCloudState(nextState, true));
   setCloudStatus('online', 'Firestore bağlı');
 }
-async function refreshFromCloud(showMessage = true) {
-  if (!currentUser || !window.FirebaseBridge?.currentAuthUser()) return;
-  try {
-    setCloudStatus('', 'Buluttan yenileniyor');
-    const profile = await window.FirebaseBridge.getUserProfile(window.FirebaseBridge.currentAuthUser().uid);
-    if (!profile?.approved || profile?.rejected) throw new Error('Oturum yetkisi bulunamadı.');
-    const cloudState = await window.FirebaseBridge.loadState(profile);
-    applyCloudState(cloudState, true);
-    window.FirebaseBridge.startRealtime(profile, nextState => applyCloudState(nextState, true));
-    setCloudStatus('online', 'Firestore bağlı');
-    if (showMessage) toast('Firestore verileri yenilendi.');
-  } catch (error) {
-    console.error(error);
-    setCloudStatus('offline', 'Yenileme hatası');
-    toast(window.FirebaseBridge.errorMessage(error));
-  }
-}
 function openBootstrapModal() {
-  toast('Güvenli üretim sürümünde ilk Admin oluşturma ekranı devre dışıdır. Mevcut Admin hesabıyla giriş yapın.');
+  showModal('İlk Admin Hesabını Oluştur', `<form id="bootstrapForm" class="form-grid">
+    <label>Ad soyad<input name="name" required></label><label>Telefon<input name="phone" type="tel" required></label>
+    <label class="span-2">Görev / rütbe<input name="title" value="Sistem Yöneticisi" required></label>
+    <label class="span-2">Şifre<input name="password" type="password" minlength="6" required></label>
+    <div class="span-2"><button class="btn btn-warning btn-block">İlk Admini Oluştur</button></div>
+  </form>`);
+  document.getElementById('bootstrapForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const f = new FormData(e.target);
+    try {
+      setCloudStatus('', 'Admin oluşturuluyor');
+      const profile = await window.FirebaseBridge.bootstrapAdmin({ name: f.get('name').trim(), phone: normalizePhone(f.get('phone')), title: f.get('title').trim(), password: f.get('password') });
+      closeModal();
+      document.getElementById('bootstrapBox').classList.add('hidden');
+      await enterAuthenticatedApp(profile);
+      toast('İlk admin hesabı oluşturuldu.');
+    } catch (error) { toast(window.FirebaseBridge.errorMessage(error)); setCloudStatus('offline', 'Kurulum hatası'); }
+  });
 }
 function init() {
   document.querySelectorAll('.auth-tab').forEach(btn => btn.addEventListener('click', () => {
@@ -333,7 +330,10 @@ function init() {
   });
   document.getElementById('bootstrapBtn').addEventListener('click', openBootstrapModal);
   document.getElementById('logoutBtn').addEventListener('click', logout);
-  document.getElementById('menuBtn').addEventListener('click', () => document.getElementById('sidebar').classList.toggle('open'));
+  const sidebar = document.getElementById('sidebar');
+  const sidebarBackdrop = document.getElementById('sidebarBackdrop');
+  document.getElementById('menuBtn').addEventListener('click', () => sidebar.classList.toggle('open'));
+  sidebarBackdrop?.addEventListener('click', () => sidebar.classList.remove('open'));
   document.getElementById('modalClose').addEventListener('click', closeModal);
   document.getElementById('modalBackdrop').addEventListener('click', e => { if (e.target.id === 'modalBackdrop') closeModal(); });
   document.getElementById('notificationBtn').addEventListener('click', () => toast('Bildirim merkezi sonraki aşamada SMS ve site içi bildirimlerle bağlanacak.'));
@@ -356,12 +356,10 @@ function login(user) {
 async function logout() {
   try { window.FirebaseBridge?.stopRealtime(); await window.FirebaseBridge?.signOut(); } catch (_) {}
   currentUser = null;
-  db = createEmptyDB();
-  try { localStorage.removeItem(APP_KEY); } catch (_) {}
   document.getElementById('appView').classList.add('hidden');
   document.getElementById('authView').classList.remove('hidden');
   document.getElementById('loginForm').reset();
-  setCloudStatus('online', 'Firebase hazır');
+  setCloudStatus('online', 'Firestore bağlı');
 }
 function renderNav() {
   const nav = document.getElementById('mainNav');
@@ -1687,9 +1685,9 @@ function renderLaundry() {
     ${isAdmin()?`<div class="card section-gap"><div class="card-header"><div><h3>Cihaz durum yönetimi</h3><p>Onarım/bakım sonrasında cihazı yeniden Aktif duruma alabilirsiniz.</p></div></div><div class="card-body machine-status-actions">${machines.map(m=>`<button class="btn btn-secondary" onclick="machineStatusModal('${m}')">${m}: ${statusLabel(db.settings.laundryMachineStatus[m])}</button>`).join('')}</div></div>`:''}
     <div class="card section-gap"><div class="card-header"><div><h3>Çamaşır randevusu</h3><p>Arızalı veya bakımda olan cihazlara randevu oluşturulamaz.</p></div><button class="btn btn-warning btn-sm" onclick="faultModal()">Arıza Kaydı Oluştur</button></div><div class="card-body"><div class="laundry-board">
       <div class="head">Saat</div>${machines.map(m=>`<div class="head">${m}<small>${statusLabel(db.settings.laundryMachineStatus[m])}</small></div>`).join('')}
-      ${times.map(time=>`<div><strong>${time}</strong></div>${machines.map(machine=>{const booking=db.laundry.find(x=>x.date===date&&x.time===time&&x.machine===machine);const active=db.settings.laundryMachineStatus[machine]==='active';return booking?`<div class="slot busy"><strong>${escapeHtml(getUser(booking.userId)?.name || (booking.userId===currentUser.id ? currentUser.name : 'Rezerve'))}</strong>${hasPermission('laundry.manage')||booking.userId===currentUser.id?`<button class="btn btn-danger btn-sm" onclick="cancelLaundry(${booking.id})">İptal</button>`:'Rezerve'}</div>`:active?`<div class="slot free" onclick="bookLaundry('${date}','${time}','${machine}')">+ Randevu Al</div>`:`<div class="slot broken">🛠 ${statusLabel(db.settings.laundryMachineStatus[machine])}</div>`}).join('')}`).join('')}
+      ${times.map(time=>`<div><strong>${time}</strong></div>${machines.map(machine=>{const booking=db.laundry.find(x=>x.date===date&&x.time===time&&x.machine===machine);const active=db.settings.laundryMachineStatus[machine]==='active';return booking?`<div class="slot busy"><strong>${escapeHtml(getUser(booking.userId)?.name||'-')}</strong>${hasPermission('laundry.manage')||booking.userId===currentUser.id?`<button class="btn btn-danger btn-sm" onclick="cancelLaundry(${booking.id})">İptal</button>`:'Rezerve'}</div>`:active?`<div class="slot free" onclick="bookLaundry('${date}','${time}','${machine}')">+ Randevu Al</div>`:`<div class="slot broken">🛠 ${statusLabel(db.settings.laundryMachineStatus[machine])}</div>`}).join('')}`).join('')}
     </div></div></div>
-    <div class="card section-gap"><div class="card-header"><div><h3>Arıza kayıtları</h3><p>Personelin bildirdiği çamaşırhane arızaları</p></div></div><div class="table-wrap"><table><thead><tr><th>Cihaz</th><th>Bildiren</th><th>Tarih</th><th>Açıklama</th><th>Durum</th><th>İşlem</th></tr></thead><tbody>${(db.laundryFaults||[]).slice().sort((a,b)=>b.createdAt.localeCompare(a.createdAt)).map(f=>`<tr><td>${escapeHtml(f.machine)}</td><td>${escapeHtml(getUser(f.userId)?.name || (f.userId===currentUser.id ? currentUser.name : 'Personel'))}</td><td>${new Date(f.createdAt).toLocaleString('tr-TR')}</td><td>${escapeHtml(f.note)}</td><td>${escapeHtml(f.status)}</td><td>${hasPermission('laundry.manage')||isAdmin()?`<button class="btn btn-secondary btn-sm" onclick="updateFaultStatus(${f.id})">Durumu Güncelle</button>`:'—'}</td></tr>`).join('')||'<tr><td colspan="6">Arıza kaydı bulunmuyor.</td></tr>'}</tbody></table></div></div>`;
+    <div class="card section-gap"><div class="card-header"><div><h3>Arıza kayıtları</h3><p>Personelin bildirdiği çamaşırhane arızaları</p></div></div><div class="table-wrap"><table><thead><tr><th>Cihaz</th><th>Bildiren</th><th>Tarih</th><th>Açıklama</th><th>Durum</th><th>İşlem</th></tr></thead><tbody>${(db.laundryFaults||[]).slice().sort((a,b)=>b.createdAt.localeCompare(a.createdAt)).map(f=>`<tr><td>${escapeHtml(f.machine)}</td><td>${escapeHtml(getUser(f.userId)?.name||'-')}</td><td>${new Date(f.createdAt).toLocaleString('tr-TR')}</td><td>${escapeHtml(f.note)}</td><td>${escapeHtml(f.status)}</td><td>${hasPermission('laundry.manage')||isAdmin()?`<button class="btn btn-secondary btn-sm" onclick="updateFaultStatus(${f.id})">Durumu Güncelle</button>`:'—'}</td></tr>`).join('')||'<tr><td colspan="6">Arıza kaydı bulunmuyor.</td></tr>'}</tbody></table></div></div>`;
 }
 
 function faultModal() {
@@ -1822,14 +1820,14 @@ function renderSettings() {
     <label class="section-gap">Aynı anda izinli azami oran (%)<input name="leaveConcurrentPercent" type="number" min="1" max="100" value="${db.settings.leaveConcurrentPercent || 25}"></label>
     <label class="section-gap">2. tercih kabul puan bonusu<input name="planningSecondChoiceBonus" type="number" min="0" value="${db.settings.planningSecondChoiceBonus ?? 20}"></label>
     <button class="btn btn-primary section-gap">Ayarları Kaydet</button></form></div></div>
-    <div class="card"><div class="card-header"><div><h3>Firebase / Firestore</h3><p>Veriler site üzerinden yönetilir.</p></div></div><div class="card-body"><div class="firebase-card"><strong>Proje: ${escapeHtml(window.FirebaseBridge?.projectId || 'gencservi-5d47e')}</strong><span>Kullanıcı, yemek, izin, yoklama, ödeme, arıza ve çamaşır verileri Firestore koleksiyonlarında tutulur.</span><div class="sync-actions"><button class="btn btn-primary btn-sm" onclick="refreshFromCloud()">Buluttan Yenile</button><button class="btn btn-secondary btn-sm" onclick="exportBackup()">JSON Yedek İndir</button></div></div><p class="form-note section-gap">V8.8 güvenlik modeli aktiftir: Firestore verileri yalnızca oturum ve rol/yetki kapsamına göre yüklenir.</p></div></div></div>`;
+    <div class="card"><div class="card-header"><div><h3>Firebase / Firestore</h3><p>Veriler site üzerinden yönetilir.</p></div></div><div class="card-body"><div class="firebase-card"><strong>Proje: ${escapeHtml(window.FirebaseBridge?.projectId || 'gencservi-5d47e')}</strong><span>Kullanıcı, yemek, izin, yoklama, ödeme, arıza ve çamaşır verileri Firestore koleksiyonlarında tutulur.</span><div class="sync-actions"><button class="btn btn-primary btn-sm" onclick="refreshFromCloud()">Buluttan Yenile</button><button class="btn btn-secondary btn-sm" onclick="exportBackup()">JSON Yedek İndir</button></div></div><p class="form-note section-gap">Test aşamasından sonra Firestore Security Rules rol/yetki sistemine göre kilitlenmelidir.</p></div></div></div>`;
   document.getElementById('settingsForm').addEventListener('submit', e => {
     e.preventDefault(); const f=new FormData(e.target);
     db.settings={...db.settings,systemName:f.get('systemName'),bankName:f.get('bankName'),accountName:f.get('accountName'),iban:f.get('iban'),weeklyLaundryLimit:Number(f.get('weeklyLaundryLimit')),leavePlanYear:Number(f.get('leavePlanYear')),leaveConcurrentPercent:Number(f.get('leaveConcurrentPercent')),planningSecondChoiceBonus:Number(f.get('planningSecondChoiceBonus'))};
     saveDB();toast('Sistem ayarları kaydedildi.');
   });
 }
-function exportBackup() { const blob = new Blob([JSON.stringify(db, null, 2)], { type: 'application/json' }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'pbys-v8-8-yetkili-yedek.json'; a.click(); URL.revokeObjectURL(a.href); toast('Yedek dosyası indirildi.'); }
+function exportBackup() { const blob = new Blob([JSON.stringify(db, null, 2)], { type: 'application/json' }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'gencservi-v6-firestore-yedek.json'; a.click(); URL.revokeObjectURL(a.href); toast('Yedek dosyası indirildi.'); }
 function resetDemo() { refreshFromCloud(); }
 
 function renderProfile() {
