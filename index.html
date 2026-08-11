@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#0f172a" />
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+  <title>PBYS - Personel Bilgi Yönetim Sistemi</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css?v=10.0.0" />
+</head>
+<body>
+  <div id="toast" class="toast" aria-live="polite"></div>
+
+  <section id="authView" class="auth-shell">
+    <div class="auth-brand">
+      <div class="brand-mark">PBYS</div>
+      <div>
+        <h1>PBYS</h1>
+        <p><strong>Personel Bilgi Yönetim Sistemi</strong></p>
+        <span class="auth-build-tag">Sürüm 10.0 · Üretim</span>
+      </div>
+    </div>
+
+    <div class="auth-card">
+      <div class="auth-tabs">
+        <button class="auth-tab active" data-auth-tab="login">Giriş Yap</button>
+        <button class="auth-tab" data-auth-tab="register">Kayıt Ol</button>
+      </div>
+
+      <form id="loginForm" class="auth-form">
+        <label>Telefon numarası
+          <input id="loginPhone" type="tel" placeholder="05xx xxx xx xx" required />
+        </label>
+        <label>Şifre
+          <input id="loginPassword" type="password" placeholder="••••••" required />
+        </label>
+        <button class="btn btn-primary btn-block" type="submit">Sisteme Giriş</button>
+        <div class="info-box firebase-info-box">
+          <strong>Firebase bağlantılı sistem</strong>
+          <span id="authHint">Telefon numaranız ve şifrenizle giriş yapın.</span>
+          <span>Yeni üyelikler yönetici onayından sonra açılır.</span>
+        </div>
+      </form>
+
+      <form id="registerForm" class="auth-form hidden">
+        <label>Ad soyad
+          <input id="registerName" type="text" required />
+        </label>
+        <label>Telefon numarası
+          <input id="registerPhone" type="tel" required />
+        </label>
+        <label>Görev / rütbe
+          <input id="registerTitle" type="text" required />
+        </label>
+        <label>Şifre
+          <input id="registerPassword" type="password" minlength="8" required />
+        </label>
+        <button class="btn btn-primary btn-block" type="submit">Onaya Gönder</button>
+        <p class="form-note">Hesabınız admin onayından sonra kullanıma açılır.</p>
+      </form>
+    </div>
+  </section>
+
+  <div id="appView" class="app-shell hidden">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-brand">
+        <div class="brand-mark small">PB</div>
+        <div>
+          <strong>PBYS</strong>
+          <span>Personel Bilgi Yönetim Sistemi</span>
+          <span class="build-tag">Sürüm 10.0 · Üretim</span>
+        </div>
+      </div>
+
+      <nav id="mainNav" class="nav-list"></nav>
+
+      <div class="sidebar-footer">
+        <div class="user-mini">
+          <div class="avatar" id="sidebarAvatar">S</div>
+          <div>
+            <strong id="sidebarName">Serhat</strong>
+            <span id="sidebarRole">Admin</span>
+          </div>
+        </div>
+        <button id="logoutBtn" class="btn btn-ghost btn-block">Çıkış Yap</button>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <header class="topbar">
+        <button id="menuBtn" class="icon-btn mobile-only" aria-label="Menüyü aç">☰</button>
+        <div>
+          <h2 id="pageTitle">Yönetim Özeti</h2>
+          <p id="todayLabel"></p>
+        </div>
+        <div class="top-actions">
+          <div id="cloudStatus" class="cloud-status"><span class="cloud-dot"></span><span>Bağlanıyor</span></div>
+          <button class="icon-btn" id="notificationBtn" title="Bildirimler">🔔<span class="badge-dot"></span></button>
+          <div class="avatar" id="topAvatar">S</div>
+        </div>
+      </header>
+
+      <section id="pageContent" class="page-content"></section>
+    </main>
+  </div>
+
+  <div id="modalBackdrop" class="modal-backdrop hidden">
+    <div class="modal" role="dialog" aria-modal="true">
+      <div class="modal-header">
+        <h3 id="modalTitle">İşlem</h3>
+        <button id="modalClose" class="icon-btn">✕</button>
+      </div>
+      <div id="modalBody" class="modal-body"></div>
+    </div>
+  </div>
+
+  <script type="module" src="firebase.js?v=10.0.0"></script>
+  <script src="app.js?v=10.0.0"></script>
+</body>
+</html>
