@@ -69,7 +69,7 @@ function getNavGroups() {
     ['balance-view', '📊', 'Tabldot Bilançosu'],
     ['my-leaves', '📅', 'İzinlerim'],
     ['leave-preference', '🗓', 'Yıllık İzin Tercihim'],
-    ['laundry', '🧺', 'Çamaşır Randevusu'],
+    ['laundry', '🧺', 'Çamaşır Sayacı'],
     ['profile', '👤', 'Profilim']
   ];
   let kitchenInsert = 1;
@@ -244,7 +244,7 @@ function notice(title, sub) { return `<div class="quick-item"><div><strong>${tit
 
 async function registerNotificationWorker() {
   if (!('serviceWorker' in navigator) || !window.isSecureContext) return null;
-  try { return await navigator.serviceWorker.register('./sw.js?v=9.2'); }
+  try { return await navigator.serviceWorker.register('./sw.js?v=9.2.4'); }
   catch (error) { console.warn('Bildirim service worker kaydı yapılamadı:', error); return null; }
 }
 async function requestSiteNotifications() {
@@ -1910,100 +1910,91 @@ const laundryMachines = ['Beyaz Çamaşır Makinesi','Gri Çamaşır Makinesi','
 function laundryMachineState(machine) { return (db.settings.laundryMachineStatus || {})[machine] || 'active'; }
 function laundryStateLabel(state) { return state === 'broken' ? 'Arızalı' : state === 'maintenance' ? 'Bakımda' : 'Aktif'; }
 function activeLaundryRun(machine) {
-  return (db.laundryRuns || []).filter(x => x.machine === machine && !x.clearedAt && ['running','finished'].includes(x.status)).sort((a,b)=>Number(b.id)-Number(a.id))[0] || null;
+  return (db.laundryRuns || []).filter(x => x.machine === machine && !x.clearedAt && ['running','stopped','finished'].includes(x.status)).sort((a,b)=>Number(b.id)-Number(a.id))[0] || null;
 }
 function formatClockFromIso(value) { return value ? new Date(value).toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'}) : '—'; }
+function formatLaundryRemaining(ms) {
+  const totalSec = Math.max(0, Math.ceil(Number(ms || 0) / 1000));
+  const min = Math.floor(totalSec / 60), sec = totalSec % 60;
+  return `${min}:${String(sec).padStart(2,'0')}`;
+}
 function renderLaundryRunCard(machine) {
   const state = laundryMachineState(machine), run = activeLaundryRun(machine), user = run ? getUser(run.userId) : null;
   if (run) {
-    const running = run.status === 'running';
-    const canClear = run.userId === currentUser.id || hasPermission('laundry.manage') || isAdmin();
-    return `<article class="laundry-live-card ${running?'running':'finished'}">
-      <div class="laundry-live-head"><div><span class="laundry-machine-dot"></span><strong>${escapeHtml(machine)}</strong></div><span class="laundry-live-badge ${running?'running':'finished'}">${running?'Çalışıyor':'Tamamlandı'}</span></div>
-      <div class="laundry-owner"><span>Şu anda</span><strong>${escapeHtml(user?.name || 'Bilinmeyen personel')}</strong><small>${running?'çamaşırını yıkıyor':'· çamaşırı makinede bekliyor'}</small></div>
-      <div class="laundry-live-meta"><div><span>Başlangıç</span><strong>${formatClockFromIso(run.startAt)}</strong></div><div><span>${running?'Tahmini bitiş':'Bitiş'}</span><strong>${formatClockFromIso(run.endAt)}</strong></div><div><span>${running?'Kalan süre':'Durum'}</span><strong ${running?`data-run-end="${run.endAt}"`:''}>${running?'—':'Çamaşır bekliyor'}</strong></div></div>
-      ${!running && canClear ? `<button class="btn btn-success btn-block" onclick="clearLaundryRun(${run.id})">Makineyi Boşalttım</button>` : ''}
+    const running = run.status === 'running', stopped = run.status === 'stopped', finished = run.status === 'finished';
+    const isOwner = run.userId === currentUser.id;
+    const cardState = running ? 'running' : stopped ? 'stopped' : 'finished';
+    const badge = running ? 'Çalışıyor' : stopped ? 'Durduruldu' : 'Tamamlandı';
+    const ownerSub = running ? 'çamaşırını yıkıyor' : stopped ? '· sayacı durdurdu' : '· programı tamamlandı';
+    const remaining = stopped ? formatLaundryRemaining(run.remainingMs) : finished ? '00:00' : '—';
+    const actionButtons = isOwner ? `<div class="laundry-run-actions">
+      ${running ? `<button class="btn btn-warning" onclick="stopLaundryRun(${run.id})">Sayacı Durdur</button>` : ''}
+      <button class="btn btn-danger" onclick="resetLaundryRun(${run.id})">Sayacı Sıfırla</button>
+    </div>` : '';
+    return `<article class="laundry-live-card ${cardState}">
+      <div class="laundry-live-head"><div><span class="laundry-machine-dot"></span><strong>${escapeHtml(machine)}</strong></div><span class="laundry-live-badge ${cardState}">${badge}</span></div>
+      <div class="laundry-owner"><span>Sayacı başlatan</span><strong>${escapeHtml(user?.name || 'Bilinmeyen personel')}</strong><small>${ownerSub}</small></div>
+      <div class="laundry-live-meta"><div><span>Başlangıç</span><strong>${formatClockFromIso(run.startAt)}</strong></div><div><span>${running?'Tahmini bitiş':stopped?'Durduruldu':'Bitiş'}</span><strong>${stopped?formatClockFromIso(run.stoppedAt):formatClockFromIso(run.endAt)}</strong></div><div><span>${running?'Kalan süre':stopped?'Kalan süre':'Durum'}</span><strong ${running?`data-run-end="${run.endAt}"`:''}>${running?'—':stopped?remaining:'Tamamlandı'}</strong></div></div>
+      ${actionButtons}
     </article>`;
   }
   return `<article class="laundry-live-card idle ${state!=='active'?'disabled':''}">
     <div class="laundry-live-head"><div><span class="laundry-machine-dot"></span><strong>${escapeHtml(machine)}</strong></div><span class="laundry-live-badge ${state==='active'?'idle':'disabled'}">${laundryStateLabel(state)}</span></div>
-    <div class="laundry-owner"><span>Makine durumu</span><strong>${state==='active'?'Müsait':laundryStateLabel(state)}</strong><small>${state==='active'?'Kullanıma hazır':'Kullanım başlatılamaz'}</small></div>
-    ${state==='active' ? `<button class="btn btn-primary btn-block" onclick="startLaundryModal('${machine}')">Makineyi Başlat</button>` : ''}
+    <div class="laundry-owner"><span>Sayaç durumu</span><strong>${state==='active'?'Hazır':laundryStateLabel(state)}</strong><small>${state==='active'?'Başlatılmayı bekliyor':'Sayaç başlatılamaz'}</small></div>
+    ${state==='active' ? `<button class="btn btn-primary btn-block" onclick="startLaundryModal('${machine}')">Sayacı Başlat</button>` : ''}
   </article>`;
 }
 
 function renderLaundry() {
-  const date = toISO(new Date()), times=['09:00','10:30','12:00','13:30','15:00','16:30','18:00','19:30','21:00'];
   db.settings.laundryMachineStatus ||= {'Beyaz Çamaşır Makinesi':'active','Gri Çamaşır Makinesi':'active','Kurutma Makinesi':'broken'};
   db.laundryRuns ||= [];
   const permission = ('Notification' in window) ? Notification.permission : 'unsupported';
   const notificationText = permission === 'granted' ? 'Bildirimler açık' : permission === 'denied' ? 'Bildirimler engelli' : permission === 'unsupported' ? 'Desteklenmiyor' : 'Bildirimleri aç';
   document.getElementById('pageContent').innerHTML=`
-    <div class="card laundry-live-panel"><div class="card-header"><div><h3>🧺 Makine Kullanım Durumu</h3><p>Makine başlatıldığında herkes kimin çamaşırının yıkandığını ve kalan süreyi görür.</p></div><button class="btn btn-secondary btn-sm" onclick="requestSiteNotifications()">🔔 ${notificationText}</button></div><div class="card-body laundry-live-grid">${laundryMachines.map(renderLaundryRunCard).join('')}</div></div>
-    ${isAdmin()?`<div class="card section-gap"><div class="card-header"><div><h3>Cihaz durum yönetimi</h3><p>Onarım/bakım sonrasında cihazı yeniden Aktif duruma alabilirsiniz.</p></div></div><div class="card-body machine-status-actions">${laundryMachines.map(m=>`<button class="btn btn-secondary" onclick="machineStatusModal('${m}')">${m}: ${laundryStateLabel(laundryMachineState(m))}</button>`).join('')}</div></div>`:''}
-    <div class="card section-gap"><div class="card-header"><div><h3>Çamaşır randevusu</h3><p>Randevu sistemi devam eder. Makineyi fiilen kullanmaya başladığınızda yukarıdaki “Makineyi Başlat” işlemini de yapın.</p></div><button class="btn btn-warning btn-sm" onclick="faultModal()">Arıza Kaydı Oluştur</button></div><div class="card-body"><div class="laundry-board">
-      <div class="head">Saat</div>${laundryMachines.map(m=>`<div class="head">${m}<small>${laundryStateLabel(laundryMachineState(m))}</small></div>`).join('')}
-      ${times.map(time=>`<div><strong>${time}</strong></div>${laundryMachines.map(machine=>{const booking=db.laundry.find(x=>x.date===date&&x.time===time&&x.machine===machine);const active=laundryMachineState(machine)==='active';return booking?`<div class="slot busy"><strong>${escapeHtml(getUser(booking.userId)?.name||'-')}</strong>${hasPermission('laundry.manage')||booking.userId===currentUser.id?`<button class="btn btn-danger btn-sm" onclick="cancelLaundry(${booking.id})">İptal</button>`:'Rezerve'}</div>`:active?`<div class="slot free" onclick="bookLaundry('${date}','${time}','${machine}')">+ Randevu Al</div>`:`<div class="slot broken">🛠 ${laundryStateLabel(laundryMachineState(machine))}</div>`}).join('')}`).join('')}
-    </div></div></div>
-    <div class="card section-gap"><div class="card-header"><div><h3>Arıza kayıtları</h3><p>Personelin bildirdiği çamaşırhane arızaları</p></div></div><div class="table-wrap"><table><thead><tr><th>Cihaz</th><th>Bildiren</th><th>Tarih</th><th>Açıklama</th><th>Durum</th><th>İşlem</th></tr></thead><tbody>${(db.laundryFaults||[]).slice().sort((a,b)=>b.createdAt.localeCompare(a.createdAt)).map(f=>`<tr><td>${escapeHtml(f.machine)}</td><td>${escapeHtml(getUser(f.userId)?.name||'-')}</td><td>${new Date(f.createdAt).toLocaleString('tr-TR')}</td><td>${escapeHtml(f.note)}</td><td>${escapeHtml(f.status)}</td><td>${hasPermission('laundry.manage')||isAdmin()?`<button class="btn btn-secondary btn-sm" onclick="updateFaultStatus(${f.id})">Durumu Güncelle</button>`:'—'}</td></tr>`).join('')||'<tr><td colspan="6">Arıza kaydı bulunmuyor.</td></tr>'}</tbody></table></div></div>`;
+    <div class="card laundry-live-panel"><div class="card-header"><div><h3>🧺 Çamaşır Sayacı</h3><p>Makineyi kullanan kişi sayacı başlatır. Sayacı yalnızca başlatan kullanıcı durdurabilir veya sıfırlayabilir.</p></div><button class="btn btn-secondary btn-sm" onclick="requestSiteNotifications()">🔔 ${notificationText}</button></div><div class="card-body laundry-live-grid">${laundryMachines.map(renderLaundryRunCard).join('')}</div></div>`;
   updateLaundryCountdowns();
 }
 
 function startLaundryModal(machine) {
   if (laundryMachineState(machine) !== 'active') return toast('Bu makine aktif değil.');
-  if (activeLaundryRun(machine)) return toast('Bu makinede devam eden veya alınmayı bekleyen çamaşır var.');
-  showModal(`${machine} · Makineyi Başlat`, `<form id="laundryStartForm" class="form-grid">
-    <div class="span-2 laundry-start-owner"><span>Çamaşırı yıkanacak personel</span><strong>${escapeHtml(currentUser.name)}</strong></div>
+  if (activeLaundryRun(machine)) return toast('Bu makinede aktif bir sayaç bulunuyor.');
+  showModal(`${machine} · Sayacı Başlat`, `<form id="laundryStartForm" class="form-grid">
+    <div class="span-2 laundry-start-owner"><span>Sayacı başlatan personel</span><strong>${escapeHtml(currentUser.name)}</strong></div>
     <label class="span-2">Program süresi (dakika)<input name="minutes" type="number" min="1" max="240" value="60" required></label>
-    <div class="span-2 form-hint">Başlattığınız anda adınız ve kalan süre tüm personele görünür. Süre dolunca bildirim izni açıksa tarayıcı bildirimi gönderilir.</div>
-    <div class="span-2"><button class="btn btn-primary btn-block">Makineyi Başlat</button></div>
+    <div class="span-2 form-hint">Başlattığınız anda adınız ve kalan süre tüm personele görünür. Sayacı durdurma ve sıfırlama yetkisi yalnızca sizde olur.</div>
+    <div class="span-2"><button class="btn btn-primary btn-block">Sayacı Başlat</button></div>
   </form>`);
   document.getElementById('laundryStartForm').addEventListener('submit', async e => {
     e.preventDefault(); const minutes = Math.max(1, Math.min(240, Number(new FormData(e.target).get('minutes') || 0)));
-    if (activeLaundryRun(machine)) return toast('Makine başka bir kullanım için dolu.');
+    if (activeLaundryRun(machine)) return toast('Makinede başka bir aktif sayaç bulunuyor.');
     const startAt = new Date(), endAt = new Date(startAt.getTime() + minutes * 60000), id = Date.now();
     db.laundryRuns ||= [];
     db.laundryRuns.push({ id, userId:currentUser.id, machine, durationMinutes:minutes, startAt:startAt.toISOString(), endAt:endAt.toISOString(), status:'running', createdAt:startAt.toISOString() });
     localStorage.removeItem(laundryNotificationKey({id}));
     logAudit('laundry.start', `${currentUser.name} · ${machine} · ${minutes} dakika`);
-    saveDB(); closeModal(); renderLaundry(); toast(`${machine} ${minutes} dakika için başlatıldı.`);
+    saveDB(); closeModal(); renderLaundry(); toast(`${machine} sayacı ${minutes} dakika için başlatıldı.`);
     if ('Notification' in window && Notification.permission === 'default') requestSiteNotifications();
   });
 }
-function clearLaundryRun(id) {
+function stopLaundryRun(id) {
   const run=(db.laundryRuns||[]).find(x=>x.id===Number(id)); if(!run)return;
-  if(run.userId!==currentUser.id&&!hasPermission('laundry.manage')&&!isAdmin())return toast('Bu çamaşırı yalnızca sahibi veya yetkili personel boşaltılmış olarak işaretleyebilir.');
-  run.status='cleared'; run.clearedAt=new Date().toISOString(); run.clearedBy=currentUser.id;
-  logAudit('laundry.clear', `${getUser(run.userId)?.name||'-'} · ${run.machine} boşaltıldı.`);
-  saveDB(); renderLaundry(); toast('Makine yeniden müsait duruma alındı.');
+  if(run.userId!==currentUser.id)return toast('Bu sayacı yalnızca başlatan kullanıcı durdurabilir.');
+  if(run.status!=='running')return toast('Sayaç zaten çalışmıyor.');
+  const now=new Date();
+  run.remainingMs=Math.max(0,new Date(run.endAt).getTime()-now.getTime());
+  run.status='stopped'; run.stoppedAt=now.toISOString(); run.stoppedBy=currentUser.id;
+  localStorage.setItem(laundryNotificationKey(run),'1');
+  logAudit('laundry.stop', `${currentUser.name} · ${run.machine} · sayaç durduruldu`);
+  saveDB(); renderLaundry(); toast('Sayaç durduruldu.');
 }
-
-function faultModal() {
-  const machines=['Beyaz Çamaşır Makinesi','Gri Çamaşır Makinesi','Kurutma Makinesi'];
-  showModal('Arıza Kaydı Oluştur',`<form id="faultForm" class="form-grid"><label class="span-2">Cihaz<select name="machine">${machines.map(x=>`<option>${x}</option>`).join('')}</select></label><label class="span-2">Arıza açıklaması<textarea name="note" required placeholder="Arızayı kısaca tarif edin"></textarea></label><div class="span-2"><button class="btn btn-warning btn-block">Arızayı Bildir</button></div></form>`);
-  document.getElementById('faultForm').addEventListener('submit',e=>{e.preventDefault();const f=new FormData(e.target),machine=f.get('machine');db.laundryFaults||=[];db.laundryFaults.push({id:Date.now(),userId:currentUser.id,machine,note:f.get('note'),status:'Açık',createdAt:new Date().toISOString()});db.settings.laundryMachineStatus||={};db.settings.laundryMachineStatus[machine]='broken';logAudit('laundry.fault',`${machine}: ${f.get('note')}`);saveDB();closeModal();renderLaundry();toast('Arıza kaydı oluşturuldu.');});
+function resetLaundryRun(id) {
+  const run=(db.laundryRuns||[]).find(x=>x.id===Number(id)); if(!run)return;
+  if(run.userId!==currentUser.id)return toast('Bu sayacı yalnızca başlatan kullanıcı sıfırlayabilir.');
+  run.status='reset'; run.resetAt=new Date().toISOString(); run.clearedAt=run.resetAt; run.resetBy=currentUser.id;
+  localStorage.setItem(laundryNotificationKey(run),'1');
+  logAudit('laundry.reset', `${currentUser.name} · ${run.machine} · sayaç sıfırlandı`);
+  saveDB(); renderLaundry(); toast('Sayaç sıfırlandı. Makine yeniden kullanılabilir.');
 }
-function updateFaultStatus(id) {
-  if(!hasPermission('laundry.manage')&&!isAdmin())return;
-  const fault=(db.laundryFaults||[]).find(x=>x.id===Number(id));if(!fault)return;
-  const next=prompt('Durum: Açık / İnceleniyor / Onarıldı',fault.status);if(!next)return;
-  fault.status=next;fault.updatedAt=new Date().toISOString();
-  if(next.toLocaleLowerCase('tr-TR').includes('onar')) db.settings.laundryMachineStatus[fault.machine]='active';
-  else if(next.toLocaleLowerCase('tr-TR').includes('ince')) db.settings.laundryMachineStatus[fault.machine]='maintenance';
-  else db.settings.laundryMachineStatus[fault.machine]='broken';
-  saveDB();renderLaundry();toast('Arıza durumu güncellendi.');
-}
-
-function bookLaundry(date, time, machine) {
-  const userId=currentUser.id;
-  if(laundryMachineState(machine) !== 'active') return toast('Bu cihaz arızalı veya bakımda; randevu alınamaz.');
-  if(db.laundry.some(x=>x.userId===userId&&x.date===date&&x.time===time)) return toast('Bu saatte başka bir randevunuz bulunuyor.');
-  const weekStart=toISO(startOfWeek(parseISO(date))), weekEnd=toISO(addDays(startOfWeek(parseISO(date)),6));
-  const used=(db.laundry||[]).filter(x=>x.userId===userId&&x.date>=weekStart&&x.date<=weekEnd).length;
-  if(used>=Number(db.settings.weeklyLaundryLimit||2)) return toast(`Haftalık çamaşır randevusu limitiniz ${db.settings.weeklyLaundryLimit||2}.`);
-  db.laundry.push({id:Date.now(),userId,date,time,machine});saveDB();renderLaundry();toast(`${machine} için ${time} randevusu oluşturuldu.`);
-}
-function cancelLaundry(id) { const booking = db.laundry.find(x => x.id === id); if (!booking || (!hasPermission('laundry.manage') && booking.userId !== currentUser.id)) return; db.laundry = db.laundry.filter(x => x.id !== id); saveDB(); renderLaundry(); toast('Randevu iptal edildi.'); }
 
 function canViewReport(type) {
   if (isAdmin()) return true;
@@ -2021,7 +2012,7 @@ function renderReports() {
     ['finance','₺','Borç ve Tahsilat Raporu','Dönemsel borç, ödeme ve bakiye özeti'],
     ['leave','📅','Yıllık İzin Raporu','Personel bazında kullanılan ve kalan izinler'],
     ['planning','⭐','İzin Planlama Raporu','Tercih, yönetim puanı ve dağıtım sonuçları'],
-    ['laundry','🧺','Çamaşır Kullanım Raporu','Makine, randevu ve arıza kayıtları'],
+    ['laundry','🧺','Çamaşır Sayaç Raporu','Makine sayaç kullanım kayıtları'],
     ['balance','📊','Aylık Bilanço','Malzeme, öğün maliyeti ve personel borçları']
   ].filter(x=>canViewReport(x[0]));
   document.getElementById('pageContent').innerHTML = cards.length
@@ -2067,10 +2058,11 @@ function reportHtml(type) {
     return `${head(`${year} İzin Planlama Raporu`)}<h3>❄️ Kış Dönemi · 10 Gün</h3><p class="report-note">Ocak-Mayıs ve Ekim-Aralık dönemlerinde ikişer tercih alınır.</p><table><thead><tr><th>Personel</th><th>İç Puan</th><th>Kış 1</th><th>Kış 2</th><th>Karar</th></tr></thead><tbody>${winterRows}</tbody></table><h3>☀️ Yaz Dönemi · 20 Gün</h3><p class="report-note">Haziran-Eylül dönemlerinde ikişer tercih alınır.</p><table><thead><tr><th>Personel</th><th>İç Puan</th><th>Yaz 1</th><th>Yaz 2</th><th>Karar</th></tr></thead><tbody>${summerRows}</tbody></table>`;
   }
   if (type === 'laundry') {
-    const bookings=db.laundry.slice().sort((a,b)=>`${b.date}${b.time}`.localeCompare(`${a.date}${a.time}`)).map(x=>`<tr><td>${formatShortDate(x.date)}</td><td>${x.time}</td><td>${escapeHtml(x.machine)}</td><td>${escapeHtml(getUser(x.userId)?.name||'-')}</td><td>Randevu</td></tr>`);
-    const runs=(db.laundryRuns||[]).slice().sort((a,b)=>String(b.startAt||'').localeCompare(String(a.startAt||''))).map(x=>`<tr><td>${new Date(x.startAt).toLocaleDateString('tr-TR')}</td><td>${formatClockFromIso(x.startAt)}</td><td>${escapeHtml(x.machine)}</td><td>${escapeHtml(getUser(x.userId)?.name||'-')}</td><td>Kullanım · ${Number(x.durationMinutes||0)} dk · ${x.status==='cleared'?'Boşaltıldı':x.status==='finished'?'Tamamlandı':'Çalıştı'}</td></tr>`);
-    const faults=(db.laundryFaults||[]).map(x=>`<tr><td>${new Date(x.createdAt).toLocaleDateString('tr-TR')}</td><td>—</td><td>${escapeHtml(x.machine)}</td><td>${escapeHtml(getUser(x.userId)?.name||'-')}</td><td>Arıza: ${escapeHtml(x.status)}</td></tr>`);
-    return `${head('Çamaşır Kullanım / Arıza Raporu')}<table><thead><tr><th>Tarih</th><th>Saat</th><th>Cihaz</th><th>Personel</th><th>İşlem</th></tr></thead><tbody>${[...runs,...bookings,...faults].join('')||'<tr><td colspan="5">Kayıt yok.</td></tr>'}</tbody></table>`;
+    const runs=(db.laundryRuns||[]).slice().sort((a,b)=>String(b.startAt||'').localeCompare(String(a.startAt||''))).map(x=>{
+      const status=x.status==='reset'?'Sıfırlandı':x.status==='stopped'?'Durduruldu':x.status==='finished'?'Tamamlandı':'Çalışıyor';
+      return `<tr><td>${new Date(x.startAt).toLocaleDateString('tr-TR')}</td><td>${formatClockFromIso(x.startAt)}</td><td>${escapeHtml(x.machine)}</td><td>${escapeHtml(getUser(x.userId)?.name||'-')}</td><td>${Number(x.durationMinutes||0)} dk · ${status}</td></tr>`;
+    });
+    return `${head('Çamaşır Sayaç Raporu')}<table><thead><tr><th>Tarih</th><th>Saat</th><th>Cihaz</th><th>Personel</th><th>Durum</th></tr></thead><tbody>${runs.join('')||'<tr><td colspan="5">Kayıt yok.</td></tr>'}</tbody></table>`;
   }
   const calc=balanceRowsForPeriod(reportPeriodKey());
   const expenseRows=db.expenses.filter(x=>x.date>=calc.start&&x.date<=calc.end).map(x=>`<tr><td>${formatShortDate(x.date)}</td><td>${escapeHtml(x.name)}</td><td>${money(x.amount)}</td></tr>`).join('');
@@ -2080,7 +2072,7 @@ function reportHtml(type) {
 }
 function openReportPreview(type) {
   if (!hasPermission('reports.view') || !canViewReport(type)) return toast('Bu raporu görüntüleme yetkiniz yok.');
-  const titleMap={meal:'Yemek Katılım Raporu',finance:'Borç ve Tahsilat Raporu',leave:'Yıllık İzin Raporu',planning:'İzin Planlama Raporu',laundry:'Çamaşır Kullanım Raporu',balance:'Aylık Bilanço'};
+  const titleMap={meal:'Yemek Katılım Raporu',finance:'Borç ve Tahsilat Raporu',leave:'Yıllık İzin Raporu',planning:'İzin Planlama Raporu',laundry:'Çamaşır Sayaç Raporu',balance:'Aylık Bilanço'};
   showModal(`${titleMap[type] || 'Rapor'} · PDF Önizleme`, `<div class="pdf-preview" id="reportPreview">${reportHtml(type)}</div><div class="section-gap report-preview-actions"><button class="btn btn-primary" onclick="printReportPreview('${type}')">PDF / Yazdır</button></div>`);
 }
 function printReportPreview(type) {
