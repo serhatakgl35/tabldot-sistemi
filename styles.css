@@ -692,34 +692,766 @@ tbody tr:hover { background: #f8fafc; }
   body.printing-report .report-print-area h3{margin-top:18px}
 }
 
-/* PBYS V9.3.20 — izin takvimi tür bazlı renkler + gerçek mobil kompakt görünüm */
-.calendar-event.leave-type-annual,.leave-day-person.leave-type-annual{background:#dbeafe;color:#1d4ed8;border-color:#bfdbfe}
-.calendar-event.leave-type-medical,.leave-day-person.leave-type-medical{background:#fee2e2;color:#b91c1c;border-color:#fecaca}
-.calendar-event.leave-type-excuse,.leave-day-person.leave-type-excuse{background:#fef3c7;color:#92400e;border-color:#fde68a}
-.calendar-event.leave-type-day,.leave-day-person.leave-type-day{background:#ede9fe;color:#6d28d9;border-color:#ddd6fe}
-.calendar-event.leave-type-road,.leave-day-person.leave-type-road{background:#cffafe;color:#0e7490;border-color:#a5f3fc}
-.calendar-event.leave-type-duty,.leave-day-person.leave-type-duty{background:#e2e8f0;color:#334155;border-color:#cbd5e1}
-.calendar-event.leave-type-other,.leave-day-person.leave-type-other{background:#f1f5f9;color:#475569;border-color:#e2e8f0}
-.leave-day-detail-list{display:grid;gap:8px}
-.leave-day-person{width:100%;border:1px solid;padding:10px 12px;border-radius:10px;text-align:left;cursor:pointer}
-.leave-day-person strong{display:block;font-size:13px}
-.leave-day-person span{display:block;margin-top:3px;font-size:10px;opacity:.85}
-.leave-day-dot{display:block;width:5px;height:5px;border-radius:999px;border:0}
-.leave-day-dot.leave-type-annual{background:#2563eb}.leave-day-dot.leave-type-medical{background:#dc2626}.leave-day-dot.leave-type-excuse{background:#d97706}.leave-day-dot.leave-type-day{background:#7c3aed}.leave-day-dot.leave-type-road{background:#0891b2}.leave-day-dot.leave-type-duty{background:#64748b}.leave-day-dot.leave-type-other{background:#94a3b8}
+/* V8.5: Tabldot bilanço mobil hizalama ve ödeme onayı */
+.finance-page{width:100%;min-width:0}
+.finance-page .grid{width:100%;min-width:0}
+.finance-page .grid>*{min-width:0;width:100%;box-sizing:border-box}
+.finance-page .card{width:100%;min-width:0;box-sizing:border-box}
+.finance-page .table-wrap{width:100%;max-width:100%;overflow-x:auto}
+.finance-page .finance-summary .metric-card{min-height:122px}
+.finance-page .finance-detail-grid>.card{height:100%}
+.finance-page .payment-approval-card{border-color:#f59e0b33}
+.finance-page .payment-approval-card .card-header{background:#fffbeb}
+.commander-leave-card{border-color:#f59e0b55;box-shadow:0 10px 28px rgba(245,158,11,.09)}
+.commander-leave-card .card-header{background:#fffbeb}
 
-@media(max-width:760px){
-  .calendar-mobile-compact{grid-template-columns:repeat(7,minmax(0,1fr))!important;width:100%!important;min-width:0!important;overflow:hidden!important}
-  .calendar-mobile-compact .calendar-head{min-width:0!important;padding:5px 0!important;font-size:8px!important}
-  .calendar-mobile-compact .calendar-day{box-sizing:border-box!important;min-width:0!important;min-height:48px!important;height:48px!important;padding:3px!important}
-  .calendar-day-compact{appearance:none;width:auto;border-left:0;border-bottom:0;cursor:pointer;text-align:left;color:var(--text);font:inherit}
-  .calendar-day-compact .day-num{position:absolute;top:4px;left:5px;font-size:10px!important;margin:0!important}
-  .leave-day-count{position:absolute;top:3px;right:4px;display:grid;place-items:center;min-width:15px;height:15px;padding:0 3px;border-radius:99px;background:#0f172a;color:white;font-size:8px;font-weight:800}
-  .leave-day-dots{position:absolute;left:5px;bottom:5px;display:flex;gap:2px;max-width:calc(100% - 10px);overflow:hidden}
-  .calendar-toolbar .calendar-actions{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr));width:100%;overflow:visible!important;gap:6px}
-  .calendar-toolbar .calendar-actions .btn{min-width:0!important;width:100%;padding:8px 4px;font-size:10px;white-space:nowrap}
+@media(max-width:900px){
+  .finance-page .grid-4,.finance-page .grid-2{grid-template-columns:minmax(0,1fr)!important}
+  .finance-page .finance-summary .metric-card{min-height:0}
+  .finance-page .card-header.calendar-toolbar{align-items:flex-start}
+  .finance-page .calendar-actions{width:100%}
+  .finance-page .calendar-actions>*{flex:1 1 150px}
+  .finance-page .table-wrap table{min-width:650px}
 }
-.calendar-event.approved,.calendar-event.pending,.calendar-event.report{background:inherit;color:inherit}
-.calendar-event.leave-type-annual{background:#dbeafe;color:#1d4ed8}.calendar-event.leave-type-medical{background:#fee2e2;color:#b91c1c}.calendar-event.leave-type-excuse{background:#fef3c7;color:#92400e}.calendar-event.leave-type-day{background:#ede9fe;color:#6d28d9}.calendar-event.leave-type-road{background:#cffafe;color:#0e7490}.calendar-event.leave-type-duty{background:#e2e8f0;color:#334155}.calendar-event.leave-type-other{background:#f1f5f9;color:#475569}
+
+@media(max-width:620px){
+  .finance-page .card-header{padding:16px}
+  .finance-page .metric-card{padding:16px}
+  .finance-page .calendar-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .finance-page .calendar-actions input{grid-column:1/-1;width:100%}
+  .finance-page .calendar-actions .btn{width:100%}
+  .finance-page .table-wrap table{min-width:620px}
+  .commander-leave-card .card-header{align-items:flex-start;flex-direction:column}
+  .commander-leave-card .card-header .btn{width:100%}
+}
+
+/* V8.6 - Kış/Yaz yıllık izin tercih ayrımı */
+.preference-period-title{display:flex;flex-direction:column;gap:4px;padding:14px 16px;border:1px solid #bfdbfe;background:#eff6ff;border-radius:14px;margin-top:8px}.preference-period-title strong{font-size:16px}.preference-period-title span{font-size:12px;color:var(--muted)}.preference-period-title.preference-summer{border-color:#fed7aa;background:#fff7ed}.survey-chart-season{grid-template-columns:repeat(2,minmax(0,1fr))}@media(min-width:1200px){.survey-chart-season{grid-template-columns:repeat(4,minmax(0,1fr))}}@media(max-width:640px){.survey-chart-season{grid-template-columns:1fr 1fr}.preference-period-title{padding:12px}}
+
+/* PBYS V8.7 - mobil sabit çıkış, faaliyet takvimi, günlük menü, komutan ana sayfası */
+.sidebar{height:100dvh;max-height:100dvh;overflow:hidden}
+.sidebar-brand{flex:0 0 auto}
+.nav-list{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable;align-content:start}
+.sidebar-footer{flex:0 0 auto;margin-top:0;background:#0f172a;padding-bottom:max(0px,env(safe-area-inset-bottom))}
+
+.dashboard-menu-card .card-header{align-items:flex-start}
+.dashboard-menu-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.dashboard-menu-grid>section{border:1px solid var(--line);border-radius:14px;padding:14px;background:#f8fafc;min-width:0}
+.dashboard-menu-title{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.dashboard-menu-title strong{font-size:16px}
+.dashboard-menu-list{margin:0;padding-left:19px;display:grid;gap:7px;color:#334155}
+.menu-empty{font-size:13px;color:var(--muted);padding:4px 0}
+.menu-info-note{padding-top:0;color:var(--muted);font-size:12px}
+
+.weekly-activities-card .card-header{align-items:flex-start}
+.weekly-activity-days{display:grid;grid-template-columns:repeat(7,minmax(170px,1fr));gap:10px;overflow-x:auto}
+.weekly-activity-day{border:1px solid var(--line);border-radius:14px;background:#fff;min-width:170px;overflow:hidden}
+.weekly-activity-day.today{border-color:#5eead4;box-shadow:0 0 0 2px rgba(45,212,191,.12)}
+.weekly-day-head{display:flex;justify-content:space-between;gap:8px;align-items:center;padding:10px 11px;background:#f8fafc;border-bottom:1px solid var(--line)}
+.weekly-day-head strong{text-transform:capitalize;font-size:13px}
+.weekly-day-head span{font-size:10px;color:var(--muted)}
+.weekly-activity-day.today .weekly-day-head{background:#ecfdf5}
+.activity-row{display:grid;grid-template-columns:48px minmax(0,1fr) auto;gap:8px;align-items:start;padding:10px 11px;border-top:1px solid #edf2f7}
+.activity-row:first-of-type{border-top:0}
+.activity-row.today{background:#fcfffe}
+.activity-time{font-size:11px;font-weight:800;color:#0f766e;padding-top:2px}
+.activity-main{display:grid;gap:3px;min-width:0}
+.activity-main strong{font-size:12px;line-height:1.35}
+.activity-main span,.activity-main small{font-size:10px;color:var(--muted);line-height:1.35}
+.activity-actions{display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end}
+.activity-actions .btn{padding:5px 7px;font-size:9px}
+.activity-none{padding:14px 11px;color:#94a3b8;font-size:11px;text-align:center}
+.today-activity-block{border-bottom:1px solid var(--line);background:#fbfdff}
+.activity-section-title{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:10px}
+.activity-section-title span{font-size:11px;color:var(--muted)}
+.compact-empty{padding:12px}
+
+.commander-status-card{border-color:#bfdbfe;box-shadow:0 12px 34px rgba(59,130,246,.08)}
+.commander-status-card>.card-header{background:#eff6ff}
+.commander-leave-summary{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;border-bottom:1px solid var(--line)}
+.commander-leave-summary>div{border:1px solid #dbeafe;border-radius:12px;padding:12px;background:#f8fbff;display:grid;gap:2px}
+.commander-leave-summary strong{font-size:24px}.commander-leave-summary span{font-size:11px;color:var(--muted)}
+.pending-leave-inline{border-top:1px solid var(--line)}
+.report-leave-range{display:grid;gap:2px;margin:3px 0}
+.report-leave-range span{font-size:9px;color:#475569}
+
+@media(max-width:900px){
+  .sidebar{height:100dvh;max-height:100dvh;padding:18px 16px max(12px,env(safe-area-inset-bottom));}
+  .sidebar-brand{padding-bottom:14px}
+  .nav-list{padding:12px 0}
+  .sidebar-footer{padding-top:12px}
+}
+@media(max-width:760px){
+  .dashboard-menu-grid{grid-template-columns:1fr}
+  .dashboard-menu-card .card-header,.weekly-activities-card .card-header,.commander-status-card .card-header{flex-direction:column;align-items:stretch}
+  .dashboard-menu-card .card-header .btn,.weekly-activities-card .card-header .btn,.commander-status-card .card-header .btn{width:100%}
+  .weekly-activity-days{grid-template-columns:1fr;overflow:visible}
+  .weekly-activity-day{min-width:0}
+  .activity-row{grid-template-columns:44px minmax(0,1fr)}
+  .activity-actions{grid-column:1/-1;justify-content:flex-start}
+  .commander-leave-summary{grid-template-columns:1fr 1fr}
+}
+@media(max-width:430px){
+  .commander-leave-summary{grid-template-columns:1fr}
+  .activity-section-title{align-items:flex-start;flex-direction:column;gap:3px}
+}
 
 
-/* PBYS V9.3.21 — izin girişinde A-Z personel + gün sayısından otomatik bitiş tarihi */
+/* PBYS V8.8 - mobil yan menü dışına dokununca kapatma katmanı */
+.sidebar-backdrop{display:none}
+@media(max-width:900px){
+  .sidebar-backdrop{
+    display:block;
+    position:fixed;
+    inset:0;
+    z-index:19;
+    background:rgba(15,23,42,.28);
+    opacity:0;
+    pointer-events:none;
+    transition:opacity .2s ease;
+  }
+  .sidebar.open + .sidebar-backdrop{
+    opacity:1;
+    pointer-events:auto;
+  }
+}
+
+/* ========================================================================== 
+   PBYS V9.0 — Kurumsal / Premium Arayüz
+   İşlevsel yapıyı değiştirmeden görsel sistem yeniden tasarlanmıştır.
+   ========================================================================== */
+:root{
+  --bg:#f4f7fb;
+  --surface:#ffffff;
+  --surface-2:#f8fafc;
+  --surface-3:#eef3f8;
+  --text:#111827;
+  --muted:#6b7280;
+  --line:#e5eaf1;
+  --primary:#0d9488;
+  --primary-dark:#0f766e;
+  --primary-soft:#e8faf7;
+  --success:#15803d;
+  --warning:#b45309;
+  --danger:#b42318;
+  --info:#2563eb;
+  --sidebar:#0b1220;
+  --sidebar-2:#111a2e;
+  --sidebar-text:#d8e0ec;
+  --shadow-sm:0 2px 8px rgba(15,23,42,.035),0 1px 2px rgba(15,23,42,.04);
+  --shadow:0 18px 45px rgba(15,23,42,.07),0 2px 8px rgba(15,23,42,.035);
+  --shadow-lg:0 28px 70px rgba(15,23,42,.12);
+  --radius:20px;
+  --radius-sm:13px;
+}
+html{background:var(--bg)}
+body{
+  font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  background:
+    radial-gradient(circle at 90% -10%,rgba(13,148,136,.055),transparent 26rem),
+    linear-gradient(180deg,#f8fafc 0,#f4f7fb 34rem,var(--bg) 100%);
+  letter-spacing:-.008em;
+}
+h1,h2,h3,h4,.sidebar-brand strong,.metric-card strong,.brand-mark{font-family:Manrope,Inter,sans-serif;letter-spacing:-.035em}
+button,input,select,textarea{font-family:inherit}
+
+/* Authentication */
+.auth-shell{
+  min-height:100dvh;
+  grid-template-columns:minmax(0,1.1fr) minmax(380px,.72fr);
+  gap:clamp(48px,7vw,120px);
+  padding:clamp(32px,6vw,90px);
+  position:relative;
+  overflow:hidden;
+  background:
+    radial-gradient(circle at 12% 18%,rgba(45,212,191,.23),transparent 28%),
+    radial-gradient(circle at 72% 92%,rgba(59,130,246,.15),transparent 30%),
+    linear-gradient(135deg,#07101f 0%,#0d1b2e 48%,#0b2d31 100%);
+}
+.auth-shell::before,.auth-shell::after{content:"";position:absolute;border:1px solid rgba(255,255,255,.055);border-radius:50%;pointer-events:none}
+.auth-shell::before{width:42vw;height:42vw;left:-16vw;bottom:-24vw}.auth-shell::after{width:32vw;height:32vw;right:-13vw;top:-14vw}
+.auth-brand,.auth-card{position:relative;z-index:1}
+.auth-brand{align-items:flex-start;gap:24px;max-width:760px}
+.auth-brand-copy{display:grid;gap:0;padding-top:4px}
+.auth-eyebrow{font-size:12px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#66e7d5;margin-bottom:18px}
+.auth-brand h1{font-size:clamp(54px,7vw,96px);font-weight:800;margin:0 0 10px;color:#fff;text-shadow:0 12px 36px rgba(0,0,0,.15)}
+.auth-brand p{font-size:clamp(17px,1.7vw,23px);color:#c7d2e3;line-height:1.45}
+.auth-brand-points{display:flex;gap:10px;flex-wrap:wrap;margin-top:28px}
+.auth-brand-points span{padding:9px 12px;border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.055);border-radius:999px;color:#cbd5e1;font-size:11px;font-weight:700;backdrop-filter:blur(10px)}
+.brand-mark{background:linear-gradient(135deg,#7ff3df,#2dd4bf);color:#082f2d;box-shadow:0 22px 55px rgba(13,148,136,.24);border:1px solid rgba(255,255,255,.35)}
+.auth-brand .brand-mark{width:88px;height:88px;border-radius:27px;font-size:25px;flex:0 0 auto}
+.auth-card{width:min(490px,100%);padding:30px;border-radius:28px;background:rgba(255,255,255,.965);border:1px solid rgba(255,255,255,.75);box-shadow:0 40px 110px rgba(0,0,0,.34);backdrop-filter:blur(24px)}
+.auth-card-intro{margin-bottom:22px}.auth-card-intro h2{font-size:29px;margin:5px 0 6px}.auth-card-intro p{margin:0;color:var(--muted);font-size:13px}.auth-card-kicker{font-size:10px;font-weight:800;letter-spacing:.13em;color:var(--primary)}
+.auth-tabs{border:1px solid var(--line);background:#f5f7fa;border-radius:14px;padding:4px}.auth-tab{border-radius:10px;padding:11px}.auth-tab.active{box-shadow:var(--shadow-sm)}
+.auth-form{gap:17px}.auth-form label{font-size:13px;color:#344054}.auth-form input{height:48px;border-radius:13px;background:#fbfcfd;border-color:#dce3eb}
+.auth-form input:focus,.auth-form select:focus,.auth-form textarea:focus{background:white;border-color:#5dd7c8;box-shadow:0 0 0 4px rgba(13,148,136,.09)}
+.demo-box{border:1px solid #e4e9f0;background:#f8fafc;border-radius:14px}
+
+/* App shell / navigation */
+.app-shell{grid-template-columns:292px minmax(0,1fr);background:transparent}
+.sidebar{
+  width:292px;
+  padding:20px 17px 16px;
+  background:
+    radial-gradient(circle at 20% 0%,rgba(45,212,191,.10),transparent 16rem),
+    linear-gradient(180deg,var(--sidebar-2) 0%,var(--sidebar) 46%,#09101d 100%);
+  border-right:1px solid rgba(255,255,255,.055);
+  box-shadow:16px 0 55px rgba(15,23,42,.065);
+}
+.sidebar-brand{padding:2px 9px 20px;gap:13px;border-bottom:1px solid rgba(255,255,255,.075)}
+.sidebar-brand .brand-mark.small{width:46px;height:46px;border-radius:15px;font-size:14px;box-shadow:0 12px 24px rgba(45,212,191,.16)}
+.sidebar-brand strong{font-size:19px;color:#fff}.sidebar-brand span{font-size:11px;color:#9aa8bb;line-height:1.3}.sidebar-brand small{font-size:8px;text-transform:uppercase;letter-spacing:.11em;color:#53d6c4;margin-top:2px}
+.nav-list{padding:17px 2px 13px;gap:4px;scrollbar-width:thin;scrollbar-color:rgba(148,163,184,.35) transparent}
+.nav-list::-webkit-scrollbar{width:5px}.nav-list::-webkit-scrollbar-thumb{background:rgba(148,163,184,.28);border-radius:999px}
+.nav-section-label{padding:18px 12px 8px;color:#637085;font-size:9px;font-weight:800;letter-spacing:.14em;text-transform:uppercase}
+.nav-item{min-height:47px;padding:7px 10px;border-radius:13px;color:#c2ccda;gap:11px;font-size:13px;font-weight:600;position:relative;transition:background .18s ease,color .18s ease,transform .18s ease}
+.nav-item:hover{background:rgba(255,255,255,.055);color:#fff;transform:translateX(2px)}
+.nav-item.active{background:linear-gradient(90deg,rgba(45,212,191,.17),rgba(45,212,191,.075));color:#7ce6d7;box-shadow:inset 0 0 0 1px rgba(94,234,212,.075)}
+.nav-item.active::before{content:"";position:absolute;left:-2px;top:12px;bottom:12px;width:3px;border-radius:999px;background:#4adbc8;box-shadow:0 0 14px rgba(45,212,191,.45)}
+.nav-icon{width:34px;height:34px;border-radius:10px;display:grid!important;place-items:center;flex:0 0 34px;background:rgba(255,255,255,.045);color:#8fa1b8;text-align:center!important}
+.nav-icon svg{width:18px;height:18px;stroke:currentColor}.nav-item.active .nav-icon{background:rgba(45,212,191,.12);color:#74e7d8}.nav-item:hover .nav-icon{color:#e7edf5}
+.sidebar-footer{border-top:1px solid rgba(255,255,255,.075);padding:14px 9px 0;gap:12px;background:transparent}
+.user-mini{gap:11px}.user-mini strong{color:#f8fafc;font-size:13px}.user-mini span{font-size:10px;line-height:1.35}.avatar{border-radius:13px;background:linear-gradient(135deg,#d9fff8,#a9f2e7);color:#0f5f59;border:1px solid rgba(255,255,255,.65);box-shadow:0 5px 14px rgba(15,118,110,.08)}
+.btn-ghost{min-height:42px;border-color:rgba(255,255,255,.12);background:rgba(255,255,255,.025);color:#d5deea}.btn-ghost:hover{background:rgba(255,255,255,.07);color:#fff}
+
+/* Header */
+.main-content{min-width:0;background:transparent}
+.topbar{height:86px;padding:0 34px;background:rgba(249,251,253,.84);border-bottom:1px solid rgba(220,227,235,.86);backdrop-filter:blur(18px) saturate(140%)}
+.topbar h2{font-size:22px;font-weight:800;color:#121826}.topbar p{font-size:11px;color:#7b8798;font-weight:500;margin-top:3px}
+.top-actions{gap:9px}.icon-btn{width:42px;height:42px;border-radius:13px;background:#fff;border:1px solid #e5eaf1;color:#475467;box-shadow:var(--shadow-sm)}
+.cloud-status{height:36px;padding:0 11px!important;border:1px solid #e4e9ef!important;background:rgba(255,255,255,.9)!important;border-radius:999px!important;box-shadow:var(--shadow-sm);font-size:10px!important;font-weight:700!important}
+.cloud-dot{box-shadow:0 0 0 4px rgba(34,197,94,.10)}
+.page-content{padding:30px 34px 56px;max-width:1720px}
+
+/* Cards / hierarchy */
+.card{border:1px solid rgba(221,228,236,.92);border-radius:22px;box-shadow:var(--shadow-sm);background:rgba(255,255,255,.96);overflow:hidden;transition:box-shadow .2s ease,border-color .2s ease,transform .2s ease}
+.card:hover{border-color:#d5dde7;box-shadow:0 12px 32px rgba(15,23,42,.055)}
+.card-header{padding:19px 21px;border-bottom:1px solid #edf0f4;background:linear-gradient(180deg,#fff,#fdfefe)}
+.card-header h3{font-size:15px;font-weight:800;color:#182230}.card-header p{font-size:11px;line-height:1.5;color:#7b8798}.card-body{padding:21px}
+.grid{gap:18px}.section-gap{margin-top:20px}
+.metric-card{min-height:118px;padding:19px;gap:15px;position:relative;overflow:hidden}
+.metric-card::after{content:"";position:absolute;width:88px;height:88px;border-radius:50%;right:-38px;top:-38px;background:radial-gradient(circle,rgba(13,148,136,.10),transparent 70%);pointer-events:none}
+.metric-icon{width:48px;height:48px;border-radius:14px;background:linear-gradient(145deg,#f6f9fc,#edf2f7);border:1px solid #e6ebf1;box-shadow:inset 0 1px 0 rgba(255,255,255,.75);font-size:20px}
+.metric-card span{font-size:11px;color:#7b8798;font-weight:600}.metric-card strong{font-size:24px;color:#111827;margin-top:4px}.metric-card small{font-size:10px;line-height:1.35;color:#8b96a7}
+.management-banner{border:1px solid #c8eee8!important;background:linear-gradient(90deg,#edfdf9,#f8fffd)!important;border-radius:16px!important;box-shadow:none!important}
+
+/* Controls */
+.btn{border-radius:12px;padding:10px 14px;font-size:12px;box-shadow:none;transition:transform .16s ease,box-shadow .16s ease,background .16s ease}
+.btn:hover{transform:translateY(-1px)}.btn-primary{background:linear-gradient(135deg,#0f9f91,#0d8278);box-shadow:0 7px 16px rgba(13,148,136,.18)}.btn-primary:hover{background:linear-gradient(135deg,#0b8f83,#0c7069);box-shadow:0 9px 20px rgba(13,148,136,.22)}
+.btn-secondary{background:#f2f5f8;color:#344054;border:1px solid #e1e7ee}.btn-danger{border:1px solid #fecaca}.btn-warning{border:1px solid #fde68a}.btn-success{border:1px solid #bbf7d0}
+input,select,textarea{border-radius:12px;border-color:#dfe5ec;background:#fbfcfd;padding:11px 13px;transition:border-color .15s ease,box-shadow .15s ease,background .15s ease}
+input:hover,select:hover,textarea:hover{border-color:#cfd8e3}input:focus,select:focus,textarea:focus{background:#fff;border-color:#5ccfc0;box-shadow:0 0 0 4px rgba(13,148,136,.085)}
+
+/* Lists / tables */
+.quick-list{gap:9px}.quick-item{min-height:62px;padding:11px 13px;background:#fbfcfd;border-color:#e7ecf2;border-radius:14px;transition:.16s ease}.quick-item:hover{background:#f7fafc;border-color:#dce4ed;transform:translateY(-1px);box-shadow:var(--shadow-sm)}.quick-item .metric-icon{width:40px;height:40px;border-radius:12px;font-size:17px}.quick-item strong{font-size:12px;color:#1d2939}.quick-item span{font-size:10px;line-height:1.4}.quick-item>b{font-size:19px;color:#98a2b3;font-weight:500}
+.table-wrap{scrollbar-width:thin;scrollbar-color:#cbd5e1 transparent}table{font-size:12px}th{padding:11px 14px;background:#f8fafc;color:#667085;font-size:9px;letter-spacing:.075em;font-weight:800}td{padding:13px 14px;color:#344054;border-color:#edf0f4}tbody tr{transition:background .13s ease}tbody tr:hover{background:#fafcfd}.status{font-size:10px;padding:5px 9px;border:1px solid currentColor;border-color:color-mix(in srgb,currentColor 18%,transparent)}
+
+/* Specialized dashboard blocks */
+.commander-status-card{border-color:#d8e6f6;box-shadow:var(--shadow)}.commander-status-card>.card-header{background:linear-gradient(135deg,#f5f9ff,#fff)}
+.commander-leave-summary>div{border-color:#dce8f6;background:linear-gradient(145deg,#f8fbff,#fff);border-radius:14px}.commander-leave-summary strong{font-family:Manrope,Inter,sans-serif;font-size:26px}
+.weekly-activities-card,.dashboard-menu-card{box-shadow:var(--shadow-sm)}
+.weekly-activity-day{border-radius:15px;border-color:#e4eaf0;box-shadow:0 1px 2px rgba(15,23,42,.025)}.weekly-day-head{background:#f8fafc}.weekly-activity-day.today{border-color:#7edfd3;box-shadow:0 0 0 3px rgba(13,148,136,.08)}.weekly-activity-day.today .weekly-day-head{background:linear-gradient(135deg,#ecfdf8,#f7fffd)}
+.dashboard-menu-grid>section{border-radius:16px;background:linear-gradient(145deg,#fafcfd,#f7fafc);border-color:#e5eaf0}.dashboard-menu-title strong{font-size:14px}
+
+/* Calendar / laundry */
+.calendar,.laundry-board,.meal-grid{border-radius:17px;border-color:#dfe5ec;box-shadow:inset 0 1px 0 rgba(255,255,255,.7)}.calendar-head,.laundry-board .head,.meal-grid .head{background:#f7f9fc;color:#667085}.calendar-day{background:#fff}.calendar-day.muted{background:#fafbfc}.slot.free{background:#effcf9;color:#0f766e}.slot.busy{background:#f9fafb}
+
+/* Modal / toast */
+.modal-backdrop{background:rgba(7,16,31,.58);backdrop-filter:blur(7px)}.modal{border-radius:24px;border:1px solid rgba(255,255,255,.7);box-shadow:0 35px 100px rgba(7,16,31,.28);overflow:hidden}.modal-header{padding:19px 21px;background:#fbfcfd}.modal-header h3{font-size:17px}.modal-body{padding:21px}.toast{right:24px;bottom:24px;border-radius:14px;background:#111827;border:1px solid rgba(255,255,255,.08);box-shadow:0 20px 50px rgba(15,23,42,.22);font-size:12px}
+
+/* Mobile */
+@media(max-width:900px){
+  .app-shell{grid-template-columns:1fr}
+  .sidebar{width:min(86vw,334px);left:min(-86vw,-334px);padding:16px 14px max(10px,env(safe-area-inset-bottom));box-shadow:none}
+  .sidebar.open{left:0;box-shadow:32px 0 80px rgba(7,16,31,.34)}
+  .sidebar-backdrop{background:rgba(7,16,31,.42)!important;backdrop-filter:blur(3px)}
+  .sidebar-brand{padding:2px 8px 14px}.sidebar-brand .brand-mark.small{width:44px;height:44px}.nav-list{padding:10px 1px}.nav-item{min-height:49px;font-size:14px}.nav-icon{width:35px;height:35px;flex-basis:35px}
+  .topbar{height:76px;padding:0 14px 0 13px}.topbar h2{font-size:19px}.topbar p{font-size:10px}.topbar>div:first-of-type{padding-left:7px}.top-actions{gap:7px}.top-actions .cloud-status{display:none}.top-actions .avatar{width:38px;height:38px}
+  .page-content{padding:18px 14px 40px}.card{border-radius:19px}.card-header{padding:16px}.card-body{padding:16px}.metric-card{min-height:104px;padding:16px}
+  .grid{gap:13px}.section-gap{margin-top:14px}
+}
+@media(max-width:620px){
+  .auth-shell{display:flex;flex-direction:column;justify-content:center;gap:28px;padding:28px 18px;background:linear-gradient(155deg,#081220,#0b2930)}
+  .auth-brand{gap:14px;align-items:center}.auth-brand .brand-mark{width:58px;height:58px;border-radius:18px;font-size:17px}.auth-eyebrow{font-size:8px;margin-bottom:7px}.auth-brand h1{font-size:32px;margin-bottom:2px}.auth-brand p{font-size:12px}.auth-brand-points{display:none}.auth-card{padding:20px;border-radius:22px}.auth-card-intro h2{font-size:23px}.auth-card-intro{margin-bottom:17px}
+  .metric-card strong{font-size:22px}.metric-icon{width:45px;height:45px}.card-header h3{font-size:14px}.card-header p{font-size:10px}
+  .commander-leave-summary{grid-template-columns:1fr 1fr!important}.commander-leave-summary>div{padding:11px}.commander-leave-summary strong{font-size:23px}
+}
+@media(max-width:390px){.commander-leave-summary{grid-template-columns:1fr!important}.page-content{padding-left:11px;padding-right:11px}}
+
+
+/* V9.1 · Mobil modal kaydırma düzeltmesi */
+.modal{
+  display:flex;
+  flex-direction:column;
+  max-height:min(88dvh, 900px);
+  overflow:hidden;
+}
+.modal-header{
+  flex:0 0 auto;
+}
+.modal-body{
+  flex:1 1 auto;
+  min-height:0;
+  overflow-y:auto;
+  overscroll-behavior:contain;
+  -webkit-overflow-scrolling:touch;
+}
+@media (max-width:700px){
+  .modal-backdrop{
+    align-items:flex-start;
+    padding:18px 12px max(18px, env(safe-area-inset-bottom));
+  }
+  .modal{
+    width:100%;
+    max-height:calc(100dvh - 36px - env(safe-area-inset-bottom));
+    border-radius:22px;
+  }
+  .modal-body{
+    padding-bottom:calc(26px + env(safe-area-inset-bottom));
+  }
+}
+
+/* PBYS V9.2 · Toplu operasyon güncellemesi */
+.menu-management-page .calendar-actions{align-items:center}
+.personal-balance-highlight .card-body{display:flex;flex-direction:column;gap:5px;background:linear-gradient(135deg,#ecfdf5,#f8fafc);border-radius:inherit}
+.personal-balance-highlight strong{font-size:17px;color:#065f46}.personal-balance-highlight span{color:#64748b;font-size:12px}
+.current-user-row td{background:#ecfdf5!important}.current-user-row td:first-child{color:#047857}
+
+.laundry-live-panel{overflow:hidden}
+.laundry-live-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.laundry-live-card{border:1px solid #dfe5ec;border-radius:18px;padding:16px;background:linear-gradient(145deg,#fff,#f8fafc);display:flex;flex-direction:column;gap:15px;min-width:0;box-shadow:0 7px 20px rgba(15,23,42,.045)}
+.laundry-live-card.running{border-color:#5eead4;background:linear-gradient(145deg,#f0fdfa,#fff)}
+.laundry-live-card.finished{border-color:#fbbf24;background:linear-gradient(145deg,#fffbeb,#fff)}
+.laundry-live-card.disabled{opacity:.72;background:#f8fafc}
+.laundry-live-head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}.laundry-live-head>div{display:flex;align-items:center;gap:9px;min-width:0}.laundry-live-head strong{font-size:14px;line-height:1.3}.laundry-machine-dot{width:10px;height:10px;border-radius:50%;background:#14b8a6;box-shadow:0 0 0 4px rgba(20,184,166,.12);flex:0 0 auto}
+.laundry-live-badge{font-size:10px;font-weight:800;padding:5px 8px;border-radius:999px;white-space:nowrap}.laundry-live-badge.running{background:#ccfbf1;color:#0f766e}.laundry-live-badge.finished{background:#fef3c7;color:#92400e}.laundry-live-badge.idle{background:#dcfce7;color:#166534}.laundry-live-badge.disabled{background:#fee2e2;color:#991b1b}
+.laundry-owner{display:grid;gap:3px}.laundry-owner span,.laundry-owner small{font-size:10px;color:#7c8799}.laundry-owner strong{font-size:20px;line-height:1.15;color:#172033;overflow-wrap:anywhere}
+.laundry-live-meta{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.laundry-live-meta>div{border:1px solid #e6ebf1;border-radius:12px;padding:9px;background:rgba(255,255,255,.72);display:grid;gap:3px}.laundry-live-meta span{font-size:9px;color:#8490a1}.laundry-live-meta strong{font-size:12px;color:#273247}
+.laundry-start-owner{padding:14px;border:1px solid #dfe5ec;border-radius:14px;background:#f8fafc;display:grid;gap:4px}.laundry-start-owner span{font-size:10px;color:#7c8799}.laundry-start-owner strong{font-size:17px}
+
+@media(max-width:900px){.laundry-live-grid{grid-template-columns:1fr}.laundry-live-card{padding:15px}}
+@media(max-width:760px){
+  /* Yıllık izin raporunda personel adı yatay kaydırmada da daima görünür. */
+  .pdf-preview table{display:table;min-width:680px}
+  .pdf-preview th:first-child,.pdf-preview td:first-child{position:sticky;left:0;z-index:2;min-width:130px;background:#fff;font-weight:800;box-shadow:1px 0 0 #cbd5e1}
+  .pdf-preview th:first-child{z-index:3;background:#f1f5f9}
+  .laundry-live-panel .card-header{flex-direction:column;align-items:stretch}.laundry-live-panel .card-header .btn{width:100%}
+  .laundry-live-meta{grid-template-columns:1fr 1fr}.laundry-live-meta>div:last-child{grid-column:1/-1}
+  .public-balance-page .table-wrap table{min-width:680px}
+}
+
+
+/* PBYS 9.2.4 - Çamaşır sayacı */
+.laundry-live-card.stopped{border-color:#94a3b8;background:linear-gradient(145deg,#f8fafc,#fff)}
+.laundry-live-badge.stopped{background:#e2e8f0;color:#334155}
+.laundry-run-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:auto}
+.laundry-run-actions .btn:only-child{grid-column:1/-1}
+@media(max-width:520px){.laundry-run-actions{grid-template-columns:1fr}}
+
+/* =========================================================
+   PBYS V9.3.0 - Toplu düzenlemeler
+   ========================================================= */
+
+/* Haftalık faaliyet: Düzenle / Sil butonları içeriğin üstüne binmez. */
+.weekly-activity-day .activity-row{
+  grid-template-columns:48px minmax(0,1fr);
+  row-gap:9px;
+}
+.weekly-activity-day .activity-actions{
+  grid-column:1/-1;
+  justify-content:flex-end;
+  padding-top:2px;
+}
+.weekly-activity-day .activity-actions .btn{
+  min-height:28px;
+  padding:6px 9px;
+  font-size:10px;
+}
+
+/* Yoklama özeti - küçük durum kartları */
+.attendance-main-metrics{margin-bottom:12px}
+.attendance-mini-summary{
+  display:grid;
+  grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:10px;
+  margin-top:12px;
+}
+.attendance-mini-card{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  min-width:0;
+  padding:11px 12px;
+  border:1px solid var(--border);
+  border-radius:13px;
+  background:#fff;
+  box-shadow:0 2px 8px rgba(15,23,42,.035);
+}
+.attendance-mini-icon{
+  width:34px;
+  height:34px;
+  flex:0 0 34px;
+  display:grid;
+  place-items:center;
+  border-radius:10px;
+  background:#f8fafc;
+  font-size:17px;
+}
+.attendance-mini-card>div{display:grid;min-width:0;gap:1px}
+.attendance-mini-card small{font-size:9px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.attendance-mini-card strong{font-size:14px;color:#172033}
+.attendance-mini-card em{font-size:9px;color:#64748b;font-style:normal;font-weight:700}
+
+/* Bugünkü detay: personel adları alt alta. */
+.attendance-name-list{display:grid;gap:7px;margin-top:11px}
+.attendance-name-line{
+  display:flex;
+  align-items:baseline;
+  flex-wrap:wrap;
+  gap:5px;
+  padding:0 0 7px;
+  border-bottom:1px dashed #e8edf3;
+  color:#334155;
+  font-size:12px;
+}
+.attendance-name-line:last-child{border-bottom:0;padding-bottom:0}
+.attendance-name-line>strong{font-size:12px}
+.attendance-name-line>span,.attendance-name-line>small{font-size:10px;color:var(--muted)}
+
+/* Haftalık yoklama: gün başlıkları üstte, personel sütunu solda sabit. */
+.attendance-week-wrap{
+  position:relative;
+  max-height:min(68vh,720px);
+  overflow:auto;
+  overscroll-behavior:contain;
+  border-radius:0 0 14px 14px;
+}
+.attendance-week-table{border-collapse:separate;border-spacing:0;width:100%}
+.attendance-week-table thead th{
+  position:sticky;
+  top:0;
+  z-index:5;
+  background:#f8fafc;
+  box-shadow:0 1px 0 #dfe6ee;
+}
+.attendance-week-table thead th:first-child{
+  left:0;
+  z-index:7;
+  background:#f8fafc;
+}
+.attendance-week-table tbody td:first-child{z-index:3;background:#fff}
+.attendance-cell-button{
+  appearance:none;
+  -webkit-appearance:none;
+  width:100%;
+  min-height:48px;
+  display:grid;
+  place-items:center;
+  gap:3px;
+  padding:5px 3px;
+  border:0;
+  border-radius:10px;
+  background:transparent;
+  color:inherit;
+  font:inherit;
+  cursor:pointer;
+}
+.attendance-cell-button:hover,.attendance-cell-button:focus-visible{
+  background:#f1f5f9;
+  outline:2px solid rgba(13,148,136,.18);
+  outline-offset:-2px;
+}
+
+/* Çamaşır günlük kullanım geçmişi */
+.laundry-history-list{display:grid;gap:8px}
+.laundry-history-row{
+  display:grid;
+  grid-template-columns:minmax(180px,1.4fr) minmax(150px,.8fr) auto;
+  align-items:center;
+  gap:12px;
+  padding:11px 12px;
+  border:1px solid #e4eaf0;
+  border-radius:13px;
+  background:#fff;
+}
+.laundry-history-person{display:grid;gap:2px;min-width:0}
+.laundry-history-person span{font-size:9px;color:var(--muted)}
+.laundry-history-person strong{font-size:13px;overflow-wrap:anywhere}
+.laundry-history-time{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:700;color:#334155}
+.laundry-history-time b{color:#94a3b8}
+.laundry-history-status{justify-self:end;font-size:10px;font-weight:800;padding:5px 8px;border-radius:999px;background:#f1f5f9;color:#475569;white-space:nowrap}
+
+/* Giriş ekranı - SMS ile şifre sıfırlama */
+.auth-forgot-link{
+  appearance:none;
+  border:0;
+  background:transparent;
+  color:#0f766e;
+  font-size:12px;
+  font-weight:800;
+  cursor:pointer;
+  justify-self:end;
+  padding:0 2px;
+}
+.auth-forgot-link:hover{text-decoration:underline}
+.forgot-password-box{
+  display:grid;
+  gap:12px;
+  padding:14px;
+  border:1px solid #d9e4e8;
+  border-radius:15px;
+  background:#f8fffd;
+}
+.forgot-password-title{display:grid;gap:3px}
+.forgot-password-title strong{font-size:13px;color:#17323a}
+.forgot-password-title span{font-size:10px;color:var(--muted);line-height:1.45}
+.forgot-verify-area{display:grid;gap:12px}
+.forgot-password-message{min-height:0;font-size:11px;line-height:1.4}
+.forgot-password-message.success{color:#047857}
+.forgot-password-message.error{color:#b42318}
+
+@media(max-width:1000px){
+  .attendance-mini-summary{grid-template-columns:repeat(3,minmax(0,1fr))}
+}
+@media(max-width:760px){
+  .attendance-mini-summary{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .attendance-week-wrap{max-height:65vh}
+  .laundry-history-row{grid-template-columns:1fr auto}
+  .laundry-history-time{grid-column:1/-1;grid-row:2}
+}
+@media(max-width:430px){
+  .attendance-mini-summary{grid-template-columns:1fr 1fr;gap:7px}
+  .attendance-mini-card{padding:9px;gap:7px}
+  .attendance-mini-icon{width:29px;height:29px;flex-basis:29px;font-size:14px}
+  .attendance-mini-card strong{font-size:12px}
+  .weekly-activity-day .activity-actions{justify-content:flex-start}
+}
+
+/* V9.3.1 — başlangıçta oturum çözülene kadar giriş ekranını göstermeme */
+.startup-loading{
+  position:fixed;
+  inset:0;
+  z-index:9999;
+  display:grid;
+  place-items:center;
+  padding:24px;
+  background:linear-gradient(145deg,#07111f 0%,#0b1728 54%,#0d2130 100%);
+}
+.startup-loading.hidden{display:none}
+.startup-loading-card{
+  width:min(92vw,360px);
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  text-align:center;
+  gap:12px;
+  padding:32px 26px;
+  border:1px solid rgba(255,255,255,.12);
+  border-radius:24px;
+  background:rgba(255,255,255,.06);
+  box-shadow:0 24px 70px rgba(0,0,0,.28);
+  color:#fff;
+  backdrop-filter:blur(10px);
+}
+.startup-loading-card strong{font-family:Manrope,Inter,sans-serif;font-size:20px}
+.startup-loading-card span{max-width:280px;color:#aebdcb;font-size:12px;line-height:1.5}
+.startup-brand-mark{width:58px;height:58px;border-radius:18px;font-size:19px}
+.startup-spinner{
+  width:30px;
+  height:30px;
+  border:3px solid rgba(255,255,255,.16);
+  border-top-color:#2dd4bf;
+  border-radius:50%;
+  animation:pbysStartupSpin .75s linear infinite;
+}
+@keyframes pbysStartupSpin{to{transform:rotate(360deg)}}
+
+/* V9.3.1 — Bugünkü detayda personeller kesin olarak tek sütun, alt alta.
+   Eski .attendance-group>div flex kuralını burada daha yüksek özgüllükle eziyoruz. */
+.attendance-group>.attendance-name-list{
+  display:grid;
+  grid-template-columns:1fr;
+  align-items:stretch;
+  justify-content:stretch;
+  gap:0;
+  width:100%;
+  margin-top:11px;
+}
+.attendance-group>.attendance-name-list>.attendance-name-line{
+  display:block;
+  width:100%;
+  padding:8px 0;
+  border-bottom:1px dashed #e8edf3;
+  line-height:1.4;
+}
+.attendance-group>.attendance-name-list>.attendance-name-line:first-child{padding-top:2px}
+.attendance-group>.attendance-name-list>.attendance-name-line:last-child{border-bottom:0;padding-bottom:0}
+.attendance-group>.attendance-name-list>.attendance-name-line>strong,
+.attendance-group>.attendance-name-list>.attendance-name-line>span,
+.attendance-group>.attendance-name-list>.attendance-name-line>small{display:block}
+.attendance-group>.attendance-name-list>.attendance-name-line>span,
+.attendance-group>.attendance-name-list>.attendance-name-line>small{margin-top:2px}
+
+
+/* PBYS V9.3.2 — faaliyet kartına tıklayınca detay penceresi */
+.activity-row-clickable{cursor:pointer;transition:background .16s ease,box-shadow .16s ease}
+.activity-row-clickable:hover{background:#f8fffd}
+.activity-row-clickable:focus-visible{outline:2px solid #14b8a6;outline-offset:-2px}
+.activity-detail{display:grid;gap:16px}
+.activity-detail-title{padding:14px 16px;border:1px solid #dbe6ea;border-radius:14px;background:linear-gradient(135deg,#f8fafc,#f0fdfa)}
+.activity-detail-title strong{font-size:18px;line-height:1.35;color:#0f172a}
+.activity-detail-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.activity-detail-grid>div,.activity-detail-note{padding:12px 14px;border:1px solid #e2e8f0;border-radius:12px;background:#fff}
+.activity-detail-grid span,.activity-detail-note>span{display:block;margin-bottom:5px;font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#64748b}
+.activity-detail-grid strong{display:block;font-size:13px;line-height:1.45;color:#1e293b}
+.activity-detail-wide{grid-column:1/-1}
+.activity-detail-note p{margin:0;font-size:13px;line-height:1.65;color:#334155;overflow-wrap:anywhere}
+.activity-detail-note.empty-note p{color:#94a3b8;font-style:italic}
+@media(max-width:520px){.activity-detail-grid{grid-template-columns:1fr}.activity-detail-wide{grid-column:auto}.activity-detail-title strong{font-size:16px}}
+
+
+/* PBYS V9.3.5 — Aşçı personel durumları + kompakt yemek tercihi */
+.meal-preference-card{overflow:hidden}
+.meal-summary-compact{padding:14px 18px;min-height:auto}
+.meal-compact-toolbar{padding-top:16px;padding-bottom:16px}
+.meal-compact-body{padding-top:10px}
+.meal-compact-list{display:grid;gap:7px}
+.meal-compact-row{
+  display:grid;
+  grid-template-columns:minmax(210px,1.15fr) minmax(180px,.8fr) minmax(180px,.8fr);
+  align-items:end;
+  gap:10px;
+  padding:9px 11px;
+  border:1px solid var(--line,#dbe3ee);
+  border-radius:11px;
+  background:#fff;
+}
+.meal-compact-row:nth-child(even){background:#fbfdff}
+.meal-compact-row.meal-on-leave{background:#fffbeb;border-color:#fde68a}
+.meal-compact-date{display:flex;align-items:center;gap:8px;min-height:38px}
+.meal-compact-date strong{font-size:13px;text-transform:capitalize}
+.meal-compact-field{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:8px;margin:0}
+.meal-compact-field>span{font-size:11px;font-weight:800;color:var(--muted,#64748b)}
+.meal-compact-select{min-height:36px;height:36px;padding:5px 30px 5px 9px;border-radius:9px;font-size:12px;background:#fff}
+.meal-compact-leave{grid-column:2 / -1;display:flex;align-items:center;gap:9px;min-height:38px}
+.meal-compact-leave small{color:var(--muted,#64748b)}
+.meal-compact-save{display:flex;justify-content:flex-end;margin-top:10px}
+.cook-personnel-meal-list .status{white-space:nowrap}
+@media(max-width:760px){
+  .meal-summary-compact{padding:12px 13px;gap:8px}
+  .meal-compact-toolbar{padding:13px}
+  .meal-compact-body{padding:8px 10px 12px}
+  .meal-compact-list{gap:6px}
+  .meal-compact-row{grid-template-columns:1fr 1fr;padding:9px;gap:7px}
+  .meal-compact-date{grid-column:1 / -1;min-height:auto;padding-bottom:2px}
+  .meal-compact-field{grid-template-columns:1fr;gap:4px}
+  .meal-compact-select{width:100%;min-width:0;height:34px;min-height:34px;font-size:11px}
+  .meal-compact-leave{grid-column:1 / -1;align-items:flex-start;flex-direction:column;gap:4px}
+  .meal-compact-save .btn{width:100%}
+}
+
+
+/* PBYS V9.3.5 — Aşçı ekranında yoklama / izin durumu */
+.cook-personnel-status-strip{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.cook-personnel-status-strip>div{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 14px;border:1px solid var(--border);border-radius:14px;background:var(--surface,#fff)}
+.cook-personnel-status-strip span{font-size:12px;color:var(--muted);font-weight:700}
+.cook-personnel-status-strip strong{font-size:14px;white-space:nowrap}
+.cook-attendance-cell{display:flex;align-items:flex-start;gap:6px 8px;flex-wrap:wrap;min-width:170px}
+.cook-attendance-cell small{width:100%;font-size:11px;color:var(--muted)}
+.cook-attendance-location{font-size:11px;font-weight:700;color:var(--muted);white-space:nowrap}
+@media(max-width:900px){.cook-personnel-status-strip{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:560px){.cook-personnel-status-strip{grid-template-columns:1fr}.cook-attendance-cell{min-width:145px}}
+
+
+/* PBYS V9.3.6 — Personel listesi A-Z + işlem sütunu taşma düzeltmesi */
+.members-card{max-width:100%;overflow:hidden}
+.members-table-wrap{width:100%;max-width:100%;overflow-x:auto;overscroll-behavior-inline:contain}
+.members-table{width:100%;min-width:1040px;table-layout:fixed}
+.members-table th,.members-table td{white-space:normal;vertical-align:middle;overflow-wrap:anywhere}
+.members-table th:nth-child(1),.members-table td:nth-child(1){width:14%}
+.members-table th:nth-child(2),.members-table td:nth-child(2){width:10%;white-space:nowrap}
+.members-table th:nth-child(3),.members-table td:nth-child(3){width:16%}
+.members-table th:nth-child(4),.members-table td:nth-child(4){width:16%}
+.members-table th:nth-child(5),.members-table td:nth-child(5){width:9%;white-space:nowrap}
+.members-table th:nth-child(6),.members-table td:nth-child(6){width:9%;white-space:nowrap}
+.members-table th:nth-child(7),.members-table td:nth-child(7){width:26%}
+.member-actions{display:flex;flex-wrap:wrap;align-items:center;gap:6px;min-width:0}
+.member-actions .btn{flex:0 0 auto;padding:6px 8px;font-size:10px;min-height:32px}
+@media(max-width:1100px){
+  .members-table{min-width:980px}
+  .member-actions .btn{padding:5px 7px;font-size:9px}
+}
+@media(max-width:760px){
+  .members-table{min-width:900px}
+  .members-card .card-header{align-items:flex-start}
+  .member-actions{display:grid;grid-template-columns:repeat(2,max-content);gap:5px}
+}
+
+
+/* PBYS V9.3.8 — İzin takvimi mobil görünüm */
+.leave-calendar-card{overflow:hidden}
+.leave-calendar-card .card-body{min-width:0;overflow:hidden}
+.leave-calendar-card .calendar{width:100%;max-width:100%;grid-template-columns:repeat(7,minmax(0,1fr));}
+.leave-calendar-card .calendar-head,
+.leave-calendar-card .calendar-day{min-width:0}
+.leave-calendar-card .calendar-day{overflow:hidden}
+.leave-calendar-card .day-num{font-weight:800}
+.leave-calendar-card .calendar-event{max-width:100%;min-width:0}
+.calendar-more{display:block;width:100%;margin-top:3px;padding:2px 3px;border:0;background:transparent;color:#0f766e;font-size:9px;font-weight:800;text-align:center;cursor:pointer}
+
+@media(max-width:620px){
+  .leave-calendar-card .card-header{padding:14px 14px 12px}
+  .leave-calendar-card .calendar-toolbar{gap:10px}
+  .leave-calendar-card .calendar-actions{display:grid;grid-template-columns:1.15fr .8fr 1.15fr;gap:6px;width:100%;flex-wrap:nowrap}
+  .leave-calendar-card .calendar-actions .btn{width:100%;min-width:0;padding:9px 5px;font-size:10px;white-space:nowrap}
+  .leave-calendar-card .card-body{padding:10px!important}
+  .leave-calendar-card .calendar{border-radius:13px}
+  .leave-calendar-card .calendar-head{padding:8px 1px;font-size:9px;line-height:1}
+  .leave-calendar-card .calendar-day{min-height:76px;padding:5px 3px}
+  .leave-calendar-card .day-num{font-size:11px;line-height:1;margin-bottom:4px;text-align:center}
+  .leave-calendar-card .calendar-event{margin-top:3px;padding:4px 2px;border-radius:6px;font-size:7.5px;line-height:1.15;text-align:center}
+  .leave-calendar-card .calendar-more{font-size:8px;padding:2px 0}
+}
+@media(max-width:390px){
+  .leave-calendar-card .card-body{padding:8px!important}
+  .leave-calendar-card .calendar-head{font-size:8px}
+  .leave-calendar-card .calendar-day{min-height:70px;padding:4px 2px}
+  .leave-calendar-card .day-num{font-size:10px}
+  .leave-calendar-card .calendar-event{font-size:7px;padding:3px 1px}
+}
+
+
+/* PBYS V9.3.9 — İzin yönetimi: A-Z personel, gün sayısı ve otomatik bitiş tarihi */
+.leave-date-grid{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) minmax(120px,.55fr) minmax(0,1fr);
+  gap:14px;
+  align-items:end;
+}
+.leave-date-grid label{min-width:0}
+.leave-date-grid input{width:100%}
+.leave-date-help{
+  margin-top:-4px;
+  padding:9px 11px;
+  border:1px solid #dbe7ea;
+  border-radius:10px;
+  background:#f7fbfb;
+  color:var(--muted,#64748b);
+  font-size:11px;
+  line-height:1.45;
+}
+@media(max-width:620px){
+  .leave-date-grid{grid-template-columns:1fr;gap:10px}
+  .leave-date-help{margin-top:-2px}
+}
+
+
+/* PBYS V9.4.0 — İzin takvimi: büyük sekme ve yazdırma araçları */
+.leave-calendar-header-actions{display:flex;flex-direction:column;align-items:flex-end;gap:8px;min-width:min(100%,420px)}
+.leave-calendar-tools{display:flex;gap:7px;justify-content:flex-end;flex-wrap:wrap}
+.leave-calendar-tools .btn{white-space:nowrap}
+@media(max-width:760px){
+  .leave-calendar-header-actions{width:100%;min-width:0;align-items:stretch;gap:7px}
+  .leave-calendar-tools{display:grid;grid-template-columns:1fr 1fr;width:100%;gap:6px}
+  .leave-calendar-tools .btn{width:100%;min-width:0;padding:9px 6px;font-size:10px}
+}

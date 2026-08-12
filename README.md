@@ -1,17 +1,4 @@
-# PBYS V9.4.2 — İzin Özeti, Takvim Renkleri, A-Z ve Arama
-
-## V9.4.2 yenilikleri
-## V9.4.2 ek düzenleme — Raporlarda A-Z
-- Yıllık İzin Raporu > İzin Bakiyeleri personel adına göre Türkçe A-Z sıralanır.
-- Yıllık İzin Raporu > Kullanılan İzin Tarihleri personel adına göre Türkçe A-Z gruplanır.
-- Borç/Tahsilat, İzin Planlama, Çamaşır Sayaç ve Aylık Bilanço raporlarındaki personel satırları da Türkçe A-Z sıralanır.
-- Tarih bazlı Yemek Katılım ve Gider listelerinde doğal kronolojik sıralama korunur.
-
-- Personel izin detayında kullanılan Yıllık İzin, Sağlık Raporu, Mazeret, Günübirlik, Yol ve diğer izinler ayrı toplamlarla gösterilir; yıllık kalan bakiye görünür.
-- İzin takviminde yalnız onaylı/rapor kayıtları yer alır; renkler onay durumuna göre değil izin türüne göre belirlenir.
-- Büyük takvim/yazdırma görünümünde de aynı izin türü renkleri ve açıklama anahtarı kullanılır.
-- Personel Durumları, Bugünkü Detay, Konum Dağılımı, Aşçı personel listesi ve Haftalık Yoklama personel isimleri Türkçe A-Z sıralıdır.
-- Bu listelerin üstüne anlık arama/filtre kutuları eklenmiştir.
+# PBYS V9.4.0 — Büyük İzin Takvimi ve Yazdırma
 
 ## V9.4.0 yenilikleri
 - İzin Yönetimi içindeki mevcut mobil ay takvimi aynen korunur.
@@ -118,7 +105,7 @@ Ayrıntılı Apps Script adımları için `PBYS_SMS_KURULUM.txt` dosyasını oku
 
 ## Sürüm
 
-Önbellek/asset sürümü: **9.4.2**
+Önbellek/asset sürümü: **9.4.0**
 
 
 ## V9.3.7 — Aşçı rolü otomatik yetkileri

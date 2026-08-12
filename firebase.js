@@ -103,50 +103,23 @@ function firebaseErrorMessage(error) {
 }
 
 async function ensureSettings() {
-  // V9.3.8: Anonim oturumda Firestore Rules tarafından korunan settings/app
-  // belgesine erişmeye çalışma. Giriş ekranı varsayılan ayarlarla açılabilir.
-  if (!auth.currentUser) return DEFAULT_SETTINGS;
   const ref = doc(firestore, 'settings', 'app');
-  try {
-    const snap = await getDoc(ref);
-    if (snap.exists()) return snap.data();
-    try {
-      await setDoc(ref, DEFAULT_SETTINGS);
-    } catch (error) {
-      if (!isPermissionDenied(error)) throw error;
-    }
-    return DEFAULT_SETTINGS;
-  } catch (error) {
-    if (isPermissionDenied(error)) return DEFAULT_SETTINGS;
-    throw error;
-  }
+  const snap = await getDoc(ref);
+  if (!snap.exists()) await setDoc(ref, DEFAULT_SETTINGS);
+  return snap.exists() ? snap.data() : DEFAULT_SETTINGS;
 }
 
 async function hasAnyUsers() {
-  if (!auth.currentUser) return true;
-  try {
-    const snap = await getDocs(query(collection(firestore, 'users'), limit(1)));
-    return !snap.empty;
-  } catch (error) {
-    if (isPermissionDenied(error)) return true;
-    throw error;
-  }
+  const snap = await getDocs(query(collection(firestore, 'users'), limit(1)));
+  return !snap.empty;
 }
 
 async function hasAnyAdmin() {
-  // Kullanıcı koleksiyonunu anonim veya yetkisiz hesaba açmayız.
-  // Erişim yoksa sistemi kurulmuş kabul etmek, güvenlik açısından daha doğrudur.
-  if (!auth.currentUser) return true;
-  try {
-    const snap = await getDocs(collection(firestore, 'users'));
-    return snap.docs.some(d => {
-      const data = d.data() || {};
-      return data.role === 'admin' || (Array.isArray(data.roles) && data.roles.includes('admin'));
-    });
-  } catch (error) {
-    if (isPermissionDenied(error)) return true;
-    throw error;
-  }
+  const snap = await getDocs(collection(firestore, 'users'));
+  return snap.docs.some(d => {
+    const data = d.data() || {};
+    return data.role === 'admin' || (Array.isArray(data.roles) && data.roles.includes('admin'));
+  });
 }
 
 async function getUserProfile(uid) {
@@ -297,7 +270,7 @@ async function collectionDataSafe(name) {
           if (!isPermissionDenied(fallbackError)) throw fallbackError;
         }
       }
-      console.warn(`Firestore koleksiyonu bu kullanıcı için kapalı: ${name}`);
+      console.warn(`Firestore koleksiyonu bu kullanıcı için kapalı: ${name}. Aşçı ekranında izin/yoklama görünmüyorsa V9.4.0 firestore.rules dosyasını Firebase Console'da yayımlayın.`);
       return [];
     }
     throw error;
@@ -408,67 +381,6 @@ async function saveState(state) {
   if (ops.length) await commitOps(ops);
   lastMaps = next;
   return ops.length;
-}
-
-async function saveDailyMenu(dateValue, menu) {
-  if (!auth.currentUser) throw new Error('Oturum bulunamadı.');
-  const date = String(dateValue || '').trim();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('Geçerli bir menü tarihi bulunamadı.');
-  const payload = clean({
-    date,
-    breakfast: String(menu?.breakfast || ''),
-    dinner: String(menu?.dinner || ''),
-    updatedBy: menu?.updatedBy,
-    updatedAt: menu?.updatedAt || new Date().toISOString()
-  });
-  await setDoc(doc(firestore, COLLECTIONS.dailyMenus, date), payload, { merge: false });
-
-  // Realtime dinleyicisi gelmeden önce yerel snapshot'ı da güncel tut.
-  if (lastMaps?.dailyMenus) lastMaps.dailyMenus.set(date, payload);
-  return payload;
-}
-
-
-async function kitchenReadPart(label, reader) {
-  try {
-    const snap = await reader();
-    return { ok: true, label, docs: snap.docs.map(d => ({ ...d.data(), _docId: d.id })) };
-  } catch (error) {
-    console.error(`[PBYS Aşçı] ${label} okunamadı`, error);
-    return {
-      ok: false,
-      label,
-      code: error?.code || 'unknown',
-      message: error?.message || String(error || 'Bilinmeyen hata'),
-      docs: []
-    };
-  }
-}
-
-async function loadKitchenSnapshot(dateValue) {
-  if (!auth.currentUser) throw new Error('Oturum bulunamadı.');
-  const date = String(dateValue || '').trim();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('Geçerli bir tarih bulunamadı.');
-
-  // V9.3.18: Bir koleksiyonun hatası tüm Aşçı yenilemesini iptal etmez.
-  const [usersPart, leavesPart, attendancePart, mealsPart] = await Promise.all([
-    kitchenReadPart('Aktif personel', () => getDocs(query(collection(firestore, COLLECTIONS.users), where('approved', '==', true)))),
-    kitchenReadPart('İzin / rapor', () => getDocs(collection(firestore, COLLECTIONS.leaveRequests))),
-    kitchenReadPart('Yoklama', () => getDocs(collection(firestore, COLLECTIONS.attendance))),
-    kitchenReadPart('Yemek tercihleri', () => getDocs(query(collection(firestore, COLLECTIONS.mealChoices), where('date', '==', date))))
-  ]);
-
-  return {
-    date,
-    users: usersPart.ok ? usersPart.docs : null,
-    leaveRequests: leavesPart.ok ? leavesPart.docs : null,
-    attendance: attendancePart.ok ? attendancePart.docs : null,
-    mealChoices: mealsPart.ok ? mealsPart.docs : null,
-    errors: [usersPart, leavesPart, attendancePart, mealsPart]
-      .filter(x => !x.ok)
-      .map(x => ({ label: x.label, code: x.code, message: x.message })),
-    fetchedAt: new Date().toISOString()
-  };
 }
 
 async function currentCloudMaps() {
@@ -599,8 +511,6 @@ window.FirebaseBridge = {
   getIdToken,
   loadState,
   saveState,
-  saveDailyMenu,
-  loadKitchenSnapshot,
   startRealtime,
   stopRealtime
 };

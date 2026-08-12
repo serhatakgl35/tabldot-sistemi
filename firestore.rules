@@ -18,20 +18,18 @@ service cloud.firestore {
     }
 
     function approved() {
-      return hasProfile()
-        && me().get('approved', false) == true
-        && me().get('rejected', false) != true;
+      return hasProfile() && me().approved == true && me().rejected != true;
     }
 
     function hasRole(role) {
       return approved() && (
-        me().get('role', '') == role ||
-        me().get('roles', []).hasAny([role])
+        me().role == role ||
+        (me().roles is list && me().roles.hasAny([role]))
       );
     }
 
     function hasExtra(permission) {
-      return approved() && me().get('extraPermissions', []).hasAny([permission]);
+      return approved() && me().extraPermissions is list && me().extraPermissions.hasAny([permission]);
     }
 
     function isAdmin() {
@@ -125,10 +123,10 @@ service cloud.firestore {
       allow get: if signedIn() && request.auth.uid == uid
         || (approved() && operationalUserViewer());
 
-      // V9.3.9: Operasyonel roller kullanıcı listesini okuyabilir.
-      // Arayüz Aşçı ekranında yalnız approved=true ve rejected!=true personeli gösterir.
-      // Böylece Aşçı hesabı tek kendi profiline düşmez ve gerçek personel toplamını görür.
-      allow list: if approved() && operationalUserViewer();
+      allow list: if approved() && (
+        personnelViewer() || leaveViewer() || attendanceViewer() ||
+        ((kitchenViewer() || mealManager() || financeManager() || laundryManager()) && resource.data.approved == true)
+      );
 
       allow create: if isAdmin() || (
         signedIn() && request.auth.uid == uid &&
@@ -196,10 +194,10 @@ service cloud.firestore {
     match /leaveRequests/{docId} {
       // Aşçı ekranı seçili günün yıllık izin / rapor gibi personel durumlarını okuyabilsin.
       // Arayüzde aşçıya yalnızca operasyonel durum gösterilir; kayıt düzenleme yetkisi verilmez.
-      allow read: if approved() && (
-        isOwnNumericUserId(resource.data) ||
-        leaveViewer() ||
+      allow get, list: if approved() && (
         kitchenViewer() ||
+        leaveViewer() ||
+        isOwnNumericUserId(resource.data) ||
         (financeManager() && resource.data.status == 'approved' && resource.data.type == 'Yıllık İzin')
       );
 
@@ -250,7 +248,7 @@ service cloud.firestore {
 
     match /attendance/{docId} {
       // Aşçı sadece ekranında günlük personel durumunu okuyabilir; yoklama kaydı değiştiremez.
-      allow read: if approved() && (isOwnNumericUserId(resource.data) || attendanceViewer() || kitchenViewer());
+      allow get, list: if approved() && (kitchenViewer() || attendanceViewer() || isOwnNumericUserId(resource.data));
       allow write: if attendanceManager();
     }
 
