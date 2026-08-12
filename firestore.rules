@@ -123,10 +123,10 @@ service cloud.firestore {
       allow get: if signedIn() && request.auth.uid == uid
         || (approved() && operationalUserViewer());
 
-      allow list: if approved() && (
-        personnelViewer() || leaveViewer() || attendanceViewer() ||
-        ((kitchenViewer() || mealManager() || financeManager() || laundryManager()) && resource.data.approved == true)
-      );
+      // V9.3.9: Operasyonel roller kullanıcı listesini okuyabilir.
+      // Arayüz Aşçı ekranında yalnız approved=true ve rejected!=true personeli gösterir.
+      // Böylece Aşçı hesabı tek kendi profiline düşmez ve gerçek personel toplamını görür.
+      allow list: if approved() && operationalUserViewer();
 
       allow create: if isAdmin() || (
         signedIn() && request.auth.uid == uid &&
