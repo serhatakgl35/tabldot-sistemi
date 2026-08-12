@@ -34,7 +34,6 @@ let cloudSyncChain = Promise.resolve();
 let firebaseBooted = false;
 let currentUser = null;
 let currentPage = 'dashboard';
-let memberFilters = { query: '', role: '', title: '' };
 let leaveCalendarCursor = startOfMonth(new Date());
 let mealWeekCursor = startOfWeek(new Date());
 let mealManagementWeekCursor = startOfWeek(new Date());
@@ -232,33 +231,6 @@ function userRoleLabels(user = currentUser) { return userRoles(user).map(r => ro
 function logAudit(action, details) { db.auditLogs ||= []; db.auditLogs.unshift({ id: Date.now() + Math.random(), at: new Date().toISOString(), userId: currentUser?.id || null, action, details }); db.auditLogs = db.auditLogs.slice(0, 500); }
 function approvedUsers() { return db.users.filter(u => u.approved && !u.rejected).slice().sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'tr-TR', { sensitivity: 'base' })); }
 function planningUsers() { return approvedUsers(); }
-
-function normalizeSearchText(value = '') { return String(value || '').toLocaleLowerCase('tr-TR').replace(/\s+/g, ' ').trim(); }
-function uniqueSortedValues(values) {
-  return Array.from(new Set(values.filter(Boolean).map(v => String(v).trim()).filter(Boolean)))
-    .sort((a, b) => a.localeCompare(b, 'tr-TR', { sensitivity: 'base' }));
-}
-function getActiveMemberRoleOptions(users) {
-  return Array.from(new Set(users.flatMap(u => userRoles(u)))).sort((a, b) => String(roleNames[a] || a).localeCompare(String(roleNames[b] || b), 'tr-TR', { sensitivity: 'base' }));
-}
-function memberMatchesFilters(user) {
-  const query = normalizeSearchText(memberFilters.query);
-  const role = String(memberFilters.role || '');
-  const title = String(memberFilters.title || '');
-  const haystack = normalizeSearchText([user.name, user.phone, user.title, userRoleLabels(user)].filter(Boolean).join(' '));
-  const queryOk = !query || haystack.includes(query);
-  const roleOk = !role || userRoles(user).includes(role);
-  const titleOk = !title || String(user.title || '').trim() === title;
-  return queryOk && roleOk && titleOk;
-}
-function updateMemberFilter(key, value) {
-  memberFilters[key] = String(value || '');
-  renderMembers();
-}
-function resetMemberFilters() {
-  memberFilters = { query: '', role: '', title: '' };
-  renderMembers();
-}
 
 function toast(message) {
   const el = document.getElementById('toast');
@@ -1339,32 +1311,22 @@ function renderMembers() {
   if (!hasPermission('personnel.view')) return goPage('dashboard');
   const trNameSort = (a, b) => String(a?.name || '').localeCompare(String(b?.name || ''), 'tr-TR', { sensitivity: 'base' });
   const pending = db.users.filter(u => !u.approved && !u.rejected).slice().sort(trNameSort);
-  const activeAll = approvedUsers().slice().sort(trNameSort);
-  const active = activeAll.filter(memberMatchesFilters);
-  const roleOptions = getActiveMemberRoleOptions(activeAll);
-  const titleOptions = uniqueSortedValues(activeAll.map(u => u.title));
+  const active = approvedUsers().slice().sort(trNameSort);
   document.getElementById('pageContent').innerHTML = `
     <div class="grid grid-3">
       ${metric('👥', 'Toplam kayıt', db.users.length, 'Tüm kullanıcılar')}
-      ${metric('✅', 'Aktif kullanıcı', activeAll.length, 'Sisteme giriş yapabilir')}
+      ${metric('✅', 'Aktif kullanıcı', active.length, 'Sisteme giriş yapabilir')}
       ${metric('🕓', 'Onay bekleyen', pending.length, isAdmin() ? 'Admin işlemi gerekli' : 'Yetkili görüntüleme')}
     </div>
     <div class="card section-gap"><div class="card-header"><div><h3>Onay bekleyen üyelikler</h3><p>Tek giriş ekranından yapılan kayıtlar</p></div></div>
       ${pending.length ? `<div class="table-wrap"><table><thead><tr><th>Personel</th><th>Telefon</th><th>Görev</th><th>İşlem</th></tr></thead><tbody>${pending.map(u => `<tr><td><strong>${escapeHtml(u.name)}</strong></td><td>${u.phone}</td><td>${escapeHtml(u.title)}</td><td>${isAdmin() ? `<button class="btn btn-success btn-sm" onclick="approveMember(${u.id})">Onayla</button> <button class="btn btn-danger btn-sm" onclick="rejectMember(${u.id})">Reddet</button>` : 'Admin onayı bekleniyor'}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">Onay bekleyen üyelik bulunmuyor.</div>'}
     </div>
-    <div class="card section-gap members-card"><div class="card-header"><div><h3>Tüm aktif personeller</h3><p>Personel bilgileri, izin geçmişi ve yetkiler tek noktadan yönetilir. Liste Türkçe A-Z sıralıdır.</p></div>${isAdmin() ? '<button class="btn btn-primary btn-sm" onclick="newMemberModal()">Personel Ekle</button>' : ''}</div>
-      <div class="member-filter-bar section-gap">
-        <label class="search"><span>Arama</span><input type="search" placeholder="Ad, telefon, görev veya role göre ara" value="${escapeHtml(memberFilters.query)}" oninput="updateMemberFilter('query', this.value)"></label>
-        <label><span>Rol</span><select onchange="updateMemberFilter('role', this.value)"><option value="">Tüm roller</option>${roleOptions.map(role => `<option value="${escapeHtml(role)}" ${memberFilters.role === role ? 'selected' : ''}>${escapeHtml(roleNames[role] || role)}</option>`).join('')}</select></label>
-        <label><span>Görev</span><select onchange="updateMemberFilter('title', this.value)"><option value="">Tüm görevler</option>${titleOptions.map(title => `<option value="${escapeHtml(title)}" ${memberFilters.title === title ? 'selected' : ''}>${escapeHtml(title)}</option>`).join('')}</select></label>
-        <div class="member-filter-actions"><button class="btn btn-secondary btn-sm" onclick="resetMemberFilters()">Filtreyi Temizle</button></div>
-      </div>
-      <div class="member-filter-summary">Gösterilen: <strong>${active.length}</strong> / ${activeAll.length} aktif personel</div>
-      ${active.length ? `<div class="table-wrap members-table-wrap"><table class="members-table"><thead><tr><th>Ad soyad</th><th>Telefon</th><th>Rol</th><th>Görev</th><th>Toplam kalan</th><th>Yıllık / Yol</th><th>İşlem</th></tr></thead><tbody>${active.map(u => `<tr><td><button class="person-link" onclick="openPersonnelLeaves(${u.id})">${escapeHtml(u.name)}</button></td><td>${u.phone}</td><td>${escapeHtml(userRoleLabels(u))}</td><td>${escapeHtml(u.title)}</td><td><strong>${getTotalLeaveRemaining(u)} gün</strong></td><td>${getRemainingLeave(u)} / ${getRoadRemaining(u)} gün</td><td><div class="member-actions">
+    <div class="card section-gap members-card"><div class="card-header"><div><h3>Tüm aktif personeller</h3><p>Personel bilgileri, izin geçmişi ve yetkiler tek noktadan yönetilir. Liste A-Z sıralıdır.</p></div>${isAdmin() ? '<button class="btn btn-primary btn-sm" onclick="newMemberModal()">Personel Ekle</button>' : ''}</div>
+      <div class="table-wrap members-table-wrap"><table class="members-table"><thead><tr><th>Ad soyad</th><th>Telefon</th><th>Rol</th><th>Görev</th><th>Toplam kalan</th><th>Yıllık / Yol</th><th>İşlem</th></tr></thead><tbody>${active.map(u => `<tr><td><button class="person-link" onclick="openPersonnelLeaves(${u.id})">${escapeHtml(u.name)}</button></td><td>${u.phone}</td><td>${escapeHtml(userRoleLabels(u))}</td><td>${escapeHtml(u.title)}</td><td><strong>${getTotalLeaveRemaining(u)} gün</strong></td><td>${getRemainingLeave(u)} / ${getRoadRemaining(u)} gün</td><td><div class="member-actions">
         <button class="btn btn-secondary btn-sm" onclick="openPersonnelLeaves(${u.id})">İzinleri</button>
         ${(isAdmin() || hasPermission('leave.manage')) ? `<button class="btn btn-secondary btn-sm" onclick="editMemberModal(${u.id})">Bilgileri Düzenle</button>` : ''}
         ${isAdmin() ? `<button class="btn btn-warning btn-sm" onclick="adminResetPasswordModal(${u.id})">Şifre Sıfırla</button><button class="btn btn-primary btn-sm" onclick="roleModal(${u.id})">Rol / Yetki</button><button class="btn btn-danger btn-sm" onclick="deletePersonnel(${u.id})">Personeli Sil</button>` : ''}
-      </div></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">Seçili filtrelere uyan aktif personel bulunamadı.</div>'}
+      </div></td></tr>`).join('')}</tbody></table></div>
     </div>`;
 }
 function approveMember(id) { if (!isAdmin()) return; const u = getUser(id); if (u) { u.approved = true; u.rejected = false; saveDB(); renderMembers(); toast('Üyelik onaylandı.'); } }
@@ -3345,13 +3307,12 @@ function reportHtml(type) {
     }).join('');
     const usedRows = [];
     approvedUsers().forEach(u => {
-      getUsedLeaveRanges(u.id, 'Yıllık İzin').forEach(x => usedRows.push({ name: u.name, sortDate: x.start, html: `<tr><td>${escapeHtml(u.name)}</td><td>Yıllık İzin</td><td>${formatShortDate(x.start)} – ${formatShortDate(x.usedEnd)}</td><td>${x.usedDays}</td></tr>` }));
-      getUsedLeaveRanges(u.id, 'Yol İzni').forEach(x => usedRows.push({ name: u.name, sortDate: x.start, html: `<tr><td>${escapeHtml(u.name)}</td><td>Yol İzni</td><td>${formatShortDate(x.start)} – ${formatShortDate(x.usedEnd)}</td><td>${x.usedDays}</td></tr>` }));
-      if (Number(u.usedLeave || 0)) usedRows.push({ name: u.name, sortDate: '9999-12-31', html: `<tr><td>${escapeHtml(u.name)}</td><td>Yıllık İzin</td><td>Eski manuel kayıt · tarih girilmemiş</td><td>${Number(u.usedLeave)}</td></tr>` });
-      if (Number(u.usedRoadLeave || 0)) usedRows.push({ name: u.name, sortDate: '9999-12-31', html: `<tr><td>${escapeHtml(u.name)}</td><td>Yol İzni</td><td>Eski manuel kayıt · tarih girilmemiş</td><td>${Number(u.usedRoadLeave)}</td></tr>` });
+      getUsedLeaveRanges(u.id, 'Yıllık İzin').forEach(x => usedRows.push(`<tr><td>${escapeHtml(u.name)}</td><td>Yıllık İzin</td><td>${formatShortDate(x.start)} – ${formatShortDate(x.usedEnd)}</td><td>${x.usedDays}</td></tr>`));
+      getUsedLeaveRanges(u.id, 'Yol İzni').forEach(x => usedRows.push(`<tr><td>${escapeHtml(u.name)}</td><td>Yol İzni</td><td>${formatShortDate(x.start)} – ${formatShortDate(x.usedEnd)}</td><td>${x.usedDays}</td></tr>`));
+      if (Number(u.usedLeave || 0)) usedRows.push(`<tr><td>${escapeHtml(u.name)}</td><td>Yıllık İzin</td><td>Eski manuel kayıt · tarih girilmemiş</td><td>${Number(u.usedLeave)}</td></tr>`);
+      if (Number(u.usedRoadLeave || 0)) usedRows.push(`<tr><td>${escapeHtml(u.name)}</td><td>Yol İzni</td><td>Eski manuel kayıt · tarih girilmemiş</td><td>${Number(u.usedRoadLeave)}</td></tr>`);
     });
-    usedRows.sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'tr-TR', { sensitivity: 'base' }) || String(a.sortDate || '').localeCompare(String(b.sortDate || '')));
-    return `${head('Yıllık İzin Raporu')}<p class="report-note">Toplam hak 30 gün yıllık + 2 gün yol = 32 gündür. Yeni yıllık izin kayıtlarında kalan yol izni ayrıca kayıt açılmadan otomatik kullanılır. Onaylanan gelecek izinler hemen kullanılmış izne düşmez; izin başlangıcının ertesi günü ilk tamamlanan gün kullanılmış sayılır.</p><h3>İzin Bakiyeleri</h3><table><thead><tr><th>Personel</th><th>Toplam Hak</th><th>Toplam Kullanılan</th><th>Toplam Kalan</th><th>Yıllık Hak</th><th>Yıllık Kalan</th><th>Yol Hak</th><th>Yol Kalan</th></tr></thead><tbody>${summaryRows}</tbody></table><h3>Kullanılan İzin Tarihleri</h3><table><thead><tr><th>Personel</th><th>İzin Türü</th><th>Kullanılan Tarih Aralığı</th><th>Gün</th></tr></thead><tbody>${usedRows.map(x => x.html).join('') || '<tr><td colspan="4">Henüz kullanılmış izin kaydı bulunmuyor.</td></tr>'}</tbody></table>`;
+    return `${head('Yıllık İzin Raporu')}<p class="report-note">Toplam hak 30 gün yıllık + 2 gün yol = 32 gündür. Yeni yıllık izin kayıtlarında kalan yol izni ayrıca kayıt açılmadan otomatik kullanılır. Onaylanan gelecek izinler hemen kullanılmış izne düşmez; izin başlangıcının ertesi günü ilk tamamlanan gün kullanılmış sayılır.</p><h3>İzin Bakiyeleri</h3><table><thead><tr><th>Personel</th><th>Toplam Hak</th><th>Toplam Kullanılan</th><th>Toplam Kalan</th><th>Yıllık Hak</th><th>Yıllık Kalan</th><th>Yol Hak</th><th>Yol Kalan</th></tr></thead><tbody>${summaryRows}</tbody></table><h3>Kullanılan İzin Tarihleri</h3><table><thead><tr><th>Personel</th><th>İzin Türü</th><th>Kullanılan Tarih Aralığı</th><th>Gün</th></tr></thead><tbody>${usedRows.join('') || '<tr><td colspan="4">Henüz kullanılmış izin kaydı bulunmuyor.</td></tr>'}</tbody></table>`;
   }
   if (type === 'planning') {
     const year=db.settings.leavePlanYear;
