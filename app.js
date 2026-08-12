@@ -867,8 +867,14 @@ function isAnnualLeaveOnDate(userId, date) {
   // dikkate alır. Pending/rejected talepler burada izin oluşturmaz.
   return attendanceForUserDate(userId, date).status === 'annual_leave';
 }
+function isCookMealExcludedOnDate(userId, date) {
+  const status = attendanceForUserDate(userId, date).status;
+  // Aşçı hazırlama hesabında yıllık izinli ve raporlu/sağlık istirahatli personel yemek dışında tutulur.
+  // Nöbet istirahati (rest) bu kapsama girmez.
+  return status === 'annual_leave' || status === 'medical';
+}
 function effectiveMealStatus(userId, date, meal) {
-  if (isAnnualLeaveOnDate(userId, date)) return 'leave';
+  if (isCookMealExcludedOnDate(userId, date)) return 'leave';
   const explicit = getMealDay(userId, date)[meal];
   if (explicit === 'no' || explicit === 'duty') return explicit;
   return 'yes';
@@ -2302,7 +2308,7 @@ function setCookDate(value) {
 }
 function kitchenMealCard(date, meal) {
   const stats = cookMealStats(date, meal);
-  const warning = stats.leave ? `<div class="kitchen-ready">🏖️ ${stats.leave} personel yıllık izin nedeniyle tabldot dışı</div>` : `<div class="kitchen-ready">✓ Varsayılan yemek listesi aktif</div>`;
+  const warning = stats.leave ? `<div class="kitchen-ready">🚫 ${stats.leave} personel yıllık izin / rapor nedeniyle yemek hazırlama hesabı dışında</div>` : `<div class="kitchen-ready">✓ Varsayılan yemek listesi aktif</div>`;
   return `<article class="card kitchen-meal-card">
     <div class="kitchen-meal-head"><div><span>${meal === 'breakfast' ? '☕' : '🍽'}</span><h3>${mealNames[meal]}</h3></div><button class="btn btn-secondary btn-sm" onclick="openCookMealDetail('${date}','${meal}')">İsim Listesi</button></div>
     <div class="kitchen-main-number"><strong>${stats.prepared}</strong><span>yemek hazırlanacak</span></div>
@@ -2310,7 +2316,7 @@ function kitchenMealCard(date, meal) {
       <div><strong>${stats.yes}</strong><span>Yerinde yiyecek</span></div>
       <div><strong>${stats.duty}</strong><span>Görevde / Ayrılacak</span></div>
       <div><strong>${stats.no}</strong><span>Yemeyecek</span></div>
-      <div><strong>${stats.leave}</strong><span>Yıllık izin</span></div>
+      <div><strong>${stats.leave}</strong><span>İzin / Rapor</span></div>
     </div>
     ${warning}
   </article>`;
@@ -2323,17 +2329,17 @@ async function renderCookDashboard(skipCloudSync = false) {
   const attendanceStats = cookAttendanceSummary(date);
   const totalPrepared = stats.reduce((sum, x) => sum + x.prepared, 0);
   const totalDuty = stats.reduce((sum, x) => sum + x.duty, 0);
-  const totalLeave = stats.reduce((sum, x) => sum + x.leave, 0);
+  const totalExcluded = stats.reduce((sum, x) => sum + x.leave, 0);
   document.getElementById('pageContent').innerHTML = `
     <div class="kitchen-topbar">
-      <div><span class="kitchen-eyebrow">GÜNLÜK MUTFAK PLANI</span><h2>${formatDayDate(date)}</h2><p>Yemek tercihlerinin yanında yoklama ve izin kayıtları da okunur. Böylece aşçı yıllık izin, rapor, görev ve benzeri personel durumlarını aynı ekranda görür.</p>${cookLastCloudSyncAt ? `<small class="form-note">Firestore son kontrol: ${new Date(cookLastCloudSyncAt).toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}</small>` : ''}</div>
+      <div><span class="kitchen-eyebrow">GÜNLÜK MUTFAK PLANI</span><h2>${formatDayDate(date)}</h2><p>Yemek tercihlerinin yanında yoklama ve izin kayıtları da okunur. Böylece aşçı yıllık izin, rapor, görev ve benzeri personel durumlarını aynı ekranda görür; yıllık izinli ve raporlu personel hazırlanacak yemek sayısından otomatik düşülür.</p>${cookLastCloudSyncAt ? `<small class="form-note">Firestore son kontrol: ${new Date(cookLastCloudSyncAt).toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}</small>` : ''}</div>
       <div class="calendar-actions kitchen-date-actions"><button class="btn btn-secondary btn-sm" onclick="changeCookDate(-1)">‹ Önceki Gün</button><button class="btn btn-secondary btn-sm" onclick="goTodayCookDate()">Bugün</button><input type="date" value="${date}" onchange="setCookDate(this.value)" aria-label="Mutfak tarihi"><button class="btn btn-primary btn-sm" onclick="changeCookDate(1)">Sonraki Gün ›</button></div>
     </div>
     <div class="grid grid-4 section-gap kitchen-overview">
       ${metric('🍽', 'Toplam hazırlanacak', totalPrepared + ' öğün', 'İki öğünün toplamı')}
       ${metric('📦', 'Görev için ayrılacak', totalDuty + ' paket', 'Görevdeyim / Ayır seçimleri')}
       ${metric('👥', 'Aktif personel', approvedUsers().length + ' kişi', 'Her öğün için değerlendirilen')}
-      ${metric('🏖️', 'Yıllık izin düşümü', totalLeave + ' öğün', 'O gün yıllık izin durumunda olan personel')}
+      ${metric('🚫', 'İzin / rapor düşümü', totalExcluded + ' öğün', 'Yıllık izinli ve raporlu personel hazırlanacak yemekten düşülür')}
     </div>
     <div class="cook-personnel-status-strip section-gap">
       <div role="button" tabindex="0" style="cursor:pointer" onclick="openCookStatusNames('annual','${date}','Yıllık izinli')"><span>🏖️ Yıllık izinli</span><strong>${attendanceStats.annualLeave} kişi</strong></div>
@@ -2357,7 +2363,7 @@ function openCookMealDetail(date, meal) {
     const source = attendance.source === 'leave' ? 'İzin sistemi' : attendance.source === 'manual' ? 'Personel durumu' : 'Varsayılan';
     return `<li>${escapeHtml(user.name)}<small>${escapeHtml(user.title || '')} · ${escapeHtml(attendanceStatusMeta(attendance.status).label)} · ${source}</small></li>`;
   }).join('')}</ul>` : '<p>Personel bulunmuyor.</p>'}</section>`;
-  showModal(`${formatDayDate(date)} · ${mealNames[meal]}`, `<div class="kitchen-detail-summary"><strong>${groups.yes.length + groups.duty.length}</strong><span>toplam yemek hazırlanacak</span></div><div class="kitchen-name-groups">${groupBlock('Yerinde yiyecek', groups.yes, 'yes')}${groupBlock('Görevde / Ayrılacak', groups.duty, 'duty')}${groupBlock('Yemeyecek', groups.no, 'no')}${groupBlock('Yıllık izin / Tabldot dışı', groups.leave, 'missing')}</div>`);
+  showModal(`${formatDayDate(date)} · ${mealNames[meal]}`, `<div class="kitchen-detail-summary"><strong>${groups.yes.length + groups.duty.length}</strong><span>toplam yemek hazırlanacak</span></div><div class="kitchen-name-groups">${groupBlock('Yerinde yiyecek', groups.yes, 'yes')}${groupBlock('Görevde / Ayrılacak', groups.duty, 'duty')}${groupBlock('Yemeyecek', groups.no, 'no')}${groupBlock('İzin / Rapor · Yemek dışı', groups.leave, 'missing')}</div>`);
 }
 
 function renderMyFinance() {
