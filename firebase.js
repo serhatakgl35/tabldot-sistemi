@@ -103,23 +103,50 @@ function firebaseErrorMessage(error) {
 }
 
 async function ensureSettings() {
+  // V9.3.8: Anonim oturumda Firestore Rules tarafından korunan settings/app
+  // belgesine erişmeye çalışma. Giriş ekranı varsayılan ayarlarla açılabilir.
+  if (!auth.currentUser) return DEFAULT_SETTINGS;
   const ref = doc(firestore, 'settings', 'app');
-  const snap = await getDoc(ref);
-  if (!snap.exists()) await setDoc(ref, DEFAULT_SETTINGS);
-  return snap.exists() ? snap.data() : DEFAULT_SETTINGS;
+  try {
+    const snap = await getDoc(ref);
+    if (snap.exists()) return snap.data();
+    try {
+      await setDoc(ref, DEFAULT_SETTINGS);
+    } catch (error) {
+      if (!isPermissionDenied(error)) throw error;
+    }
+    return DEFAULT_SETTINGS;
+  } catch (error) {
+    if (isPermissionDenied(error)) return DEFAULT_SETTINGS;
+    throw error;
+  }
 }
 
 async function hasAnyUsers() {
-  const snap = await getDocs(query(collection(firestore, 'users'), limit(1)));
-  return !snap.empty;
+  if (!auth.currentUser) return true;
+  try {
+    const snap = await getDocs(query(collection(firestore, 'users'), limit(1)));
+    return !snap.empty;
+  } catch (error) {
+    if (isPermissionDenied(error)) return true;
+    throw error;
+  }
 }
 
 async function hasAnyAdmin() {
-  const snap = await getDocs(collection(firestore, 'users'));
-  return snap.docs.some(d => {
-    const data = d.data() || {};
-    return data.role === 'admin' || (Array.isArray(data.roles) && data.roles.includes('admin'));
-  });
+  // Kullanıcı koleksiyonunu anonim veya yetkisiz hesaba açmayız.
+  // Erişim yoksa sistemi kurulmuş kabul etmek, güvenlik açısından daha doğrudur.
+  if (!auth.currentUser) return true;
+  try {
+    const snap = await getDocs(collection(firestore, 'users'));
+    return snap.docs.some(d => {
+      const data = d.data() || {};
+      return data.role === 'admin' || (Array.isArray(data.roles) && data.roles.includes('admin'));
+    });
+  } catch (error) {
+    if (isPermissionDenied(error)) return true;
+    throw error;
+  }
 }
 
 async function getUserProfile(uid) {
@@ -383,6 +410,24 @@ async function saveState(state) {
   return ops.length;
 }
 
+async function saveDailyMenu(dateValue, menu) {
+  if (!auth.currentUser) throw new Error('Oturum bulunamadı.');
+  const date = String(dateValue || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('Geçerli bir menü tarihi bulunamadı.');
+  const payload = clean({
+    date,
+    breakfast: String(menu?.breakfast || ''),
+    dinner: String(menu?.dinner || ''),
+    updatedBy: menu?.updatedBy,
+    updatedAt: menu?.updatedAt || new Date().toISOString()
+  });
+  await setDoc(doc(firestore, COLLECTIONS.dailyMenus, date), payload, { merge: false });
+
+  // Realtime dinleyicisi gelmeden önce yerel snapshot'ı da güncel tut.
+  if (lastMaps?.dailyMenus) lastMaps.dailyMenus.set(date, payload);
+  return payload;
+}
+
 async function currentCloudMaps() {
   const state = await loadState(false);
   return stateToMaps(state);
@@ -511,6 +556,7 @@ window.FirebaseBridge = {
   getIdToken,
   loadState,
   saveState,
+  saveDailyMenu,
   startRealtime,
   stopRealtime
 };
