@@ -850,7 +850,7 @@ function canFitAnnualLeaveEntitlement(user, requestedDays, excludeId = null) {
 }
 function isApprovedAnnualLeaveOnDate(userId, date) {
   return (db.leaveRequests || []).some(x =>
-    x.userId === Number(userId) &&
+    samePersonnelId(x.userId, userId) &&
     x.status === 'approved' &&
     String(x.type || '').toLocaleLowerCase('tr-TR').includes('yıllık') &&
     x.start <= date &&
@@ -1711,6 +1711,11 @@ function renderTeamShiftManagement() {
     </div>`;
 }
 
+
+function samePersonnelId(a, b) {
+  return String(a ?? '').trim() === String(b ?? '').trim();
+}
+
 function attendanceStatusFromLeave(req) {
   const text = `${req.type || ''}`.toLocaleLowerCase('tr-TR');
   if (text.includes('yıllık')) return 'annual_leave';
@@ -1721,11 +1726,11 @@ function attendanceStatusFromLeave(req) {
 }
 const attendancePlaceSuggestions = ['Karakol', 'Yemekhane', 'Nizamiye', 'Santral', 'İdari İşler', 'Devriye', 'Araç Görevi', 'Dış Görev'];
 function attendanceForUserDate(userId, date) {
-  const manual = (db.attendance || []).filter(x => x.userId === Number(userId) && x.start <= date && x.end >= date).sort((a,b) => b.id - a.id)[0];
+  const manual = (db.attendance || []).filter(x => samePersonnelId(x.userId, userId) && x.start <= date && x.end >= date).sort((a,b) => Number(b.id || 0) - Number(a.id || 0))[0];
   if (manual) return { status: manual.status, task: manual.task || manual.note || '', note: manual.note || '', location: manual.location || '', source: 'manual', record: manual };
-  const leave = (db.leaveRequests || []).find(x => x.userId === Number(userId) && ['approved','report'].includes(x.status) && x.start <= date && x.end >= date);
+  const leave = (db.leaveRequests || []).find(x => samePersonnelId(x.userId, userId) && ['approved','report'].includes(x.status) && x.start <= date && x.end >= date);
   if (leave) return { status: attendanceStatusFromLeave(leave), task: '', note: leave.type, location: '', source: 'leave', record: leave };
-  const user = getUser(Number(userId));
+  const user = getUser(Number(userId)) || (db.users || []).find(u => samePersonnelId(u.id, userId));
   const team = teamRotationForUser(user, date);
   if (team) return team;
   return { status: 'present', task: '', note: '', location: '', source: 'default', record: null };
@@ -2146,6 +2151,82 @@ function recalculateExistingPeriodDebts(period) {
 
 
 
+
+let cookCloudSyncBusy = false;
+let cookLastCloudSyncAt = '';
+
+function mergeCookKitchenSnapshot(snapshot) {
+  if (!snapshot) return;
+
+  // Approved users: merge fresh Firestore documents without deleting unrelated local entries.
+  const existing = new Map((db.users || []).map(u => [String(u.uid || u.id), u]));
+  (snapshot.users || []).forEach(raw => {
+    const cleanUser = { ...raw };
+    delete cleanUser._docId;
+    const key = String(cleanUser.uid || cleanUser.id);
+    existing.set(key, { ...(existing.get(key) || {}), ...cleanUser });
+  });
+  db.users = [...existing.values()];
+
+  // These two collections are the source of daily personnel status.
+  db.leaveRequests = (snapshot.leaveRequests || []).map(x => {
+    const y = { ...x };
+    delete y._docId;
+    return y;
+  });
+  db.attendance = (snapshot.attendance || []).map(x => {
+    const y = { ...x };
+    delete y._docId;
+    return y;
+  });
+
+  // Replace only the selected day's meal choices with fresh Firestore values.
+  const date = snapshot.date;
+  approvedUsers().forEach(user => {
+    if (db.mealSelections?.[user.id]) delete db.mealSelections[user.id][date];
+    if (db.mealSelections?.[String(user.id)]) delete db.mealSelections[String(user.id)][date];
+  });
+  (snapshot.mealChoices || []).forEach(choice => {
+    const uid = choice.userId;
+    db.mealSelections ||= {};
+    db.mealSelections[uid] ||= {};
+    db.mealSelections[uid][date] = {
+      breakfast: choice.breakfast || '',
+      dinner: choice.dinner || ''
+    };
+  });
+
+  cookLastCloudSyncAt = snapshot.fetchedAt || new Date().toISOString();
+  try { localStorage.setItem(APP_KEY, JSON.stringify(db)); } catch (_) {}
+}
+
+async function syncCookKitchenData(date, notify = false) {
+  if (cookCloudSyncBusy || !window.FirebaseBridge?.loadKitchenSnapshot) return false;
+  cookCloudSyncBusy = true;
+  try {
+    setCloudStatus('', 'Aşçı verileri güncelleniyor');
+    const snapshot = await window.FirebaseBridge.loadKitchenSnapshot(date);
+    mergeCookKitchenSnapshot(snapshot);
+    setCloudStatus('online', 'Firestore bağlı');
+    if (notify) toast('Aşçı personel durumu Firestore’dan yenilendi.');
+    return true;
+  } catch (error) {
+    console.error('Aşçı canlı veri yenileme hatası:', error);
+    setCloudStatus('offline', 'Aşçı veri erişim hatası');
+    toast(window.FirebaseBridge?.errorMessage(error) || 'Aşçı verileri Firestore’dan okunamadı.');
+    return false;
+  } finally {
+    cookCloudSyncBusy = false;
+  }
+}
+
+async function refreshCookDashboard() {
+  const date = toISO(cookDateCursor);
+  await syncCookKitchenData(date, true);
+  await renderCookDashboard(true);
+}
+
+
 function getMealStatusGroups(date, meal) {
   const groups = { yes: [], duty: [], no: [], leave: [] };
   approvedUsers().forEach(user => groups[effectiveMealStatus(user.id,date,meal)].push(user));
@@ -2168,9 +2249,26 @@ function cookAttendanceSummary(date) {
   summary.otherLeave = Number(summary.excuse_leave || 0) + Number(summary.road_leave || 0);
   return summary;
 }
+
+function cookStatusUsers(kind, date) {
+  const users = approvedUsers().slice().sort(trNameCompare);
+  if (kind === 'annual') return users.filter(u => attendanceForUserDate(u.id,date).status === 'annual_leave');
+  if (kind === 'medical') return users.filter(u => attendanceForUserDate(u.id,date).status === 'medical');
+  if (kind === 'duty') return users.filter(u => ['duty','temporary_duty','course','referral'].includes(attendanceForUserDate(u.id,date).status));
+  if (kind === 'otherLeave') return users.filter(u => ['excuse_leave','road_leave'].includes(attendanceForUserDate(u.id,date).status));
+  return [];
+}
+function openCookStatusNames(kind, date, title) {
+  const users = cookStatusUsers(kind, date);
+  showModal(`${title} · ${formatShortDate(date)}`, `<div class="quick-list">${users.map(u => {
+    const a = attendanceForUserDate(u.id,date);
+    return `<div class="quick-item"><div><strong>${escapeHtml(u.name)}</strong><span>${escapeHtml(u.title || '')} · ${escapeHtml(attendanceStatusMeta(a.status).label)}</span></div></div>`;
+  }).join('') || '<div class="empty">Personel bulunmuyor.</div>'}</div>`);
+}
+
 function cookPersonnelStatusCell(userId, date) {
   const attendance = attendanceForUserDate(userId, date);
-  const source = attendance.source === 'leave' ? 'İzin sistemi' : attendance.source === 'manual' ? 'Yoklama' : 'Varsayılan';
+  const source = attendance.source === 'leave' ? 'İzin sistemi' : attendance.source === 'manual' ? 'Yoklama' : attendance.source === 'team' ? 'Tim vardiyası' : 'Varsayılan';
   return `<div class="cook-attendance-cell">${attendanceBadge(attendance.status)}${attendance.location ? `<span class="cook-attendance-location">📍 ${escapeHtml(attendance.location)}</span>` : ''}<small>${source}</small></div>`;
 }
 function changeCookDate(delta) {
@@ -2201,9 +2299,10 @@ function kitchenMealCard(date, meal) {
     ${warning}
   </article>`;
 }
-function renderCookDashboard() {
+async function renderCookDashboard(skipCloudSync = false) {
   if (!hasCookPermission()) return goPage('dashboard');
   const date = toISO(cookDateCursor);
+  if (!skipCloudSync) await syncCookKitchenData(date, false);
   const stats = ['breakfast', 'dinner'].map(meal => cookMealStats(date, meal));
   const attendanceStats = cookAttendanceSummary(date);
   const totalPrepared = stats.reduce((sum, x) => sum + x.prepared, 0);
@@ -2211,7 +2310,7 @@ function renderCookDashboard() {
   const totalLeave = stats.reduce((sum, x) => sum + x.leave, 0);
   document.getElementById('pageContent').innerHTML = `
     <div class="kitchen-topbar">
-      <div><span class="kitchen-eyebrow">GÜNLÜK MUTFAK PLANI</span><h2>${formatDayDate(date)}</h2><p>Yemek tercihlerinin yanında yoklama ve izin kayıtları da okunur. Böylece aşçı yıllık izin, rapor, görev ve benzeri personel durumlarını aynı ekranda görür.</p></div>
+      <div><span class="kitchen-eyebrow">GÜNLÜK MUTFAK PLANI</span><h2>${formatDayDate(date)}</h2><p>Yemek tercihlerinin yanında yoklama ve izin kayıtları da okunur. Böylece aşçı yıllık izin, rapor, görev ve benzeri personel durumlarını aynı ekranda görür.</p>${cookLastCloudSyncAt ? `<small class="form-note">Firestore son kontrol: ${new Date(cookLastCloudSyncAt).toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}</small>` : ''}</div>
       <div class="calendar-actions kitchen-date-actions"><button class="btn btn-secondary btn-sm" onclick="changeCookDate(-1)">‹ Önceki Gün</button><button class="btn btn-secondary btn-sm" onclick="goTodayCookDate()">Bugün</button><input type="date" value="${date}" onchange="setCookDate(this.value)" aria-label="Mutfak tarihi"><button class="btn btn-primary btn-sm" onclick="changeCookDate(1)">Sonraki Gün ›</button></div>
     </div>
     <div class="grid grid-4 section-gap kitchen-overview">
@@ -2221,16 +2320,16 @@ function renderCookDashboard() {
       ${metric('🏖️', 'Yıllık izin düşümü', totalLeave + ' öğün', 'O gün yıllık izin durumunda olan personel')}
     </div>
     <div class="cook-personnel-status-strip section-gap">
-      <div><span>🏖️ Yıllık izinli</span><strong>${attendanceStats.annualLeave} kişi</strong></div>
-      <div><span>🏥 Raporlu / İstirahatli</span><strong>${attendanceStats.medical} kişi</strong></div>
-      <div><span>📍 Görev / Geçici / Kurs / Sevk</span><strong>${attendanceStats.dutyAway} kişi</strong></div>
-      <div><span>📅 Mazeret / Yol izni</span><strong>${attendanceStats.otherLeave} kişi</strong></div>
+      <div role="button" tabindex="0" style="cursor:pointer" onclick="openCookStatusNames('annual','${date}','Yıllık izinli')"><span>🏖️ Yıllık izinli</span><strong>${attendanceStats.annualLeave} kişi</strong></div>
+      <div role="button" tabindex="0" style="cursor:pointer" onclick="openCookStatusNames('medical','${date}','Raporlu / İstirahatli')"><span>🏥 Raporlu / İstirahatli</span><strong>${attendanceStats.medical} kişi</strong></div>
+      <div role="button" tabindex="0" style="cursor:pointer" onclick="openCookStatusNames('duty','${date}','Görev / Geçici / Kurs / Sevk')"><span>📍 Görev / Geçici / Kurs / Sevk</span><strong>${attendanceStats.dutyAway} kişi</strong></div>
+      <div role="button" tabindex="0" style="cursor:pointer" onclick="openCookStatusNames('otherLeave','${date}','Mazeret / Yol izni')"><span>📅 Mazeret / Yol izni</span><strong>${attendanceStats.otherLeave} kişi</strong></div>
     </div>
     <div class="kitchen-meals section-gap">${['breakfast', 'dinner'].map(meal => kitchenMealCard(date, meal)).join('')}</div>
-    <div class="card section-gap cook-personnel-meal-list"><div class="card-header"><div><h3>Tüm personel yemek ve günlük durum listesi</h3><p>Sabah-Akşam yemek tercihi ile yıllık izin, rapor, görev, kurs ve diğer yoklama durumları birlikte gösterilir.</p></div><div class="toolbar-right"><button class="btn btn-secondary btn-sm" onclick="renderCookDashboard()">↻ Yenile</button></div></div>
+    <div class="card section-gap cook-personnel-meal-list"><div class="card-header"><div><h3>Tüm personel yemek ve günlük durum listesi</h3><p>Sabah-Akşam yemek tercihi ile yıllık izin, rapor, görev, kurs ve diğer yoklama durumları birlikte gösterilir.</p></div><div class="toolbar-right"><button class="btn btn-secondary btn-sm" onclick="refreshCookDashboard()">↻ Firestore’dan Yenile</button></div></div>
       <div class="table-wrap"><table><thead><tr><th>Personel</th><th>Görev / Rütbe</th><th>Personel Durumu</th><th>Sabah</th><th>Akşam</th></tr></thead><tbody>${approvedUsers().map(user => `<tr><td><strong>${escapeHtml(user.name)}</strong></td><td>${escapeHtml(user.title || '—')}</td><td>${cookPersonnelStatusCell(user.id,date)}</td><td>${mealStatusChip(effectiveMealStatus(user.id,date,'breakfast'))}</td><td>${mealStatusChip(effectiveMealStatus(user.id,date,'dinner'))}</td></tr>`).join('')}</tbody></table></div>
     </div>
-    <div class="card section-gap"><div class="card-header"><div><h3>Günlük hazırlık özeti</h3><p>Aşçının hızlı kontrol listesi</p></div><div class="toolbar-right"><button class="btn btn-secondary btn-sm" onclick="renderCookDashboard()">↻ Yenile</button><button class="btn btn-secondary btn-sm" onclick="window.print()">Yazdır</button></div></div>
+    <div class="card section-gap"><div class="card-header"><div><h3>Günlük hazırlık özeti</h3><p>Aşçının hızlı kontrol listesi</p></div><div class="toolbar-right"><button class="btn btn-secondary btn-sm" onclick="refreshCookDashboard()">↻ Firestore’dan Yenile</button><button class="btn btn-secondary btn-sm" onclick="window.print()">Yazdır</button></div></div>
       <div class="table-wrap"><table class="kitchen-summary-table"><thead><tr><th>Öğün</th><th>Hazırlanacak</th><th>Yerinde yiyecek</th><th>Görevde / Ayrılacak</th><th>Yemeyecek</th><th>Yıllık izin</th><th>Liste</th></tr></thead><tbody>${['breakfast','dinner'].map(meal => { const x = cookMealStats(date, meal); return `<tr><td><strong>${mealNames[meal]}</strong></td><td><span class="kitchen-table-total">${x.prepared}</span></td><td>${x.yes}</td><td>${x.duty}</td><td>${x.no}</td><td>${x.leave}</td><td><button class="btn btn-secondary btn-sm" onclick="openCookMealDetail('${date}','${meal}')">İsimleri Gör</button></td></tr>`; }).join('')}</tbody></table></div>
     </div>`;
 }
