@@ -222,8 +222,14 @@ async function signOutUser() {
   await signOut(auth);
 }
 
-function waitForAuthState() {
-  return new Promise(resolve => {
+async function waitForAuthState() {
+  // browserLocalPersistence ile oturum yenilemede korunur. Firebase ilk auth
+  // durumunu çözümlene kadar bekleyerek kısa süreli null dönmesini engeller.
+  if (typeof auth.authStateReady === 'function') {
+    await auth.authStateReady();
+    return auth.currentUser;
+  }
+  return await new Promise(resolve => {
     let unsub = () => {};
     unsub = onAuthStateChanged(auth, user => { unsub(); resolve(user); });
   });

@@ -1,6 +1,12 @@
 const APP_KEY = 'personel_yasam_v6';
 const LEGACY_APP_KEYS = [];
 
+// PBYS şifre sıfırlama SMS servisi.
+// Mevcut Kantin10 Google Apps Script Web App adresi varsayılan olarak kullanılır.
+// PBYS_SMS_SIFRE_SIFIRLAMA.gs ayrı dağıtılırsa bu URL yeni dağıtım adresiyle değiştirilmelidir.
+const PBYS_SMS_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbw32Q03nQD1FJ9iSz2LgpB2S_QEzAdSSeLK1K3IIRI39eqOXowlloGVjYRGuoezqrFLlQ/exec';
+const PBYS_PAGE_HISTORY_KEY = 'pbys_page_history_v1';
+
 const seed = {
   users: [], mealSelections: {}, expenses: [], payments: [], debts: [], leaveRequests: [], leavePreferences: [],
   leavePlanResults: [], laundry: [], laundryRuns: [], laundryFaults: [], attendance: [], auditLogs: [], weeklyActivities: [], dailyMenus: {},
@@ -34,6 +40,7 @@ let attendanceWeekCursor = startOfWeek(new Date());
 let balanceViewPeriod = `${new Date().getFullYear()}-${pad(new Date().getMonth()+1)}`;
 let laundryWatcherTimer = null;
 let laundryCountdownTimer = null;
+let laundryVisualExpiredIds = new Set();
 
 const roleNames = { admin: 'Admin', staff: 'Personel', cook: 'Aşçı', tabldot: 'Tabldot Sorumlusu', administrative: 'İdari İşler', commander: 'Karakol Komutanı' };
 const rolePermissions = {
@@ -287,25 +294,40 @@ async function checkLaundryTimers() {
   db.laundryRuns ||= [];
   const now = Date.now();
   let changed = false;
+  let visualRefreshNeeded = false;
+
+  // Bir kullanıcının yalnızca kendi sayaç kaydı kendisi tarafından güncellenir.
   for (const run of db.laundryRuns) {
     if (run.status === 'running' && new Date(run.endAt).getTime() <= now) {
-      run.status = 'finished';
-      run.finishedAt = run.finishedAt || new Date().toISOString();
-      changed = true;
+      if (!laundryVisualExpiredIds.has(run.id)) {
+        laundryVisualExpiredIds.add(run.id);
+        visualRefreshNeeded = true;
+      }
+      if (run.userId === currentUser.id) {
+        run.status = 'finished';
+        run.finishedAt = run.finishedAt || run.endAt || new Date().toISOString();
+        changed = true;
+      }
     }
   }
-  const mine = db.laundryRuns.filter(run => run.userId === currentUser.id && run.status === 'finished' && !run.clearedAt);
+
+  const mine = db.laundryRuns.filter(run =>
+    run.userId === currentUser.id &&
+    laundryEffectiveStatus(run) === 'finished' &&
+    !run.clearedAt
+  );
   for (const run of mine) {
     const key = laundryNotificationKey(run);
     if (localStorage.getItem(key)) continue;
     const sent = await sendSiteNotification('Çamaşır makinesi tamamlandı', `${run.machine} programı bitti. Çamaşırınızı alabilirsiniz.`, `laundry-${run.id}`);
     if (sent) localStorage.setItem(key, '1');
   }
+
   if (changed) {
-    logAudit('laundry.finish', 'Süresi dolan çamaşır makinesi kullanımları tamamlandı olarak işaretlendi.');
+    logAudit('laundry.finish', 'Kullanıcının süresi dolan çamaşır sayacı tamamlandı olarak işaretlendi.');
     saveDB();
-    if (currentPage === 'laundry') renderLaundry();
   }
+  if ((changed || visualRefreshNeeded) && currentPage === 'laundry') renderLaundry();
   updateLaundryCountdowns();
 }
 function startLaundryTimerWatcher() {
@@ -378,6 +400,96 @@ function openBootstrapModal() {
     } catch (error) { toast(window.FirebaseBridge.errorMessage(error)); setCloudStatus('offline', 'Kurulum hatası'); }
   });
 }
+function forgotPasswordMessage(message, type = '') {
+  const el = document.getElementById('forgotPasswordMessage');
+  if (!el) return;
+  el.textContent = message || '';
+  el.className = `forgot-password-message ${type}`.trim();
+}
+function toggleForgotPasswordBox() {
+  const box = document.getElementById('forgotPasswordBox');
+  if (!box) return;
+  const opening = box.classList.contains('hidden');
+  box.classList.toggle('hidden');
+  forgotPasswordMessage('');
+  if (opening) {
+    const phone = document.getElementById('loginPhone')?.value || '';
+    const target = document.getElementById('forgotPhone');
+    if (target) {
+      target.value = phone;
+      setTimeout(() => target.focus(), 50);
+    }
+  }
+}
+function normalizeSmsPhone10(value) {
+  let digits = String(value || '').replace(/\D/g, '');
+  if (digits.startsWith('90')) digits = digits.slice(2);
+  if (digits.startsWith('0')) digits = digits.slice(1);
+  return digits.slice(0, 10);
+}
+async function pbysSmsRequest(payload) {
+  if (!PBYS_SMS_WEB_APP_URL || PBYS_SMS_WEB_APP_URL.includes('BURAYA')) throw new Error('SMS Web App adresi tanımlı değil.');
+  const response = await fetch(PBYS_SMS_WEB_APP_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({ ...payload, system: 'PBYS' })
+  });
+  return await response.json();
+}
+async function sendForgotPasswordCode() {
+  const phoneInput = document.getElementById('forgotPhone');
+  const button = document.getElementById('forgotSendBtn');
+  const phone10 = normalizeSmsPhone10(phoneInput?.value);
+  if (phone10.length !== 10 || !phone10.startsWith('5')) return forgotPasswordMessage('Geçerli bir cep telefonu numarası girin.', 'error');
+  forgotPasswordMessage('');
+  button.disabled = true;
+  const oldText = button.textContent;
+  button.textContent = 'Kod gönderiliyor…';
+  try {
+    const data = await pbysSmsRequest({ action: 'pbysSifreKodGonder', telefon: phone10 });
+    if (data?.success === false) throw new Error(data.message || 'Doğrulama kodu gönderilemedi.');
+    document.getElementById('forgotVerifyArea')?.classList.remove('hidden');
+    forgotPasswordMessage(data?.message || 'Telefon kayıtlıysa doğrulama kodu SMS ile gönderildi.', 'success');
+    setTimeout(() => document.getElementById('forgotCode')?.focus(), 80);
+  } catch (error) {
+    console.error(error);
+    forgotPasswordMessage(error?.message || 'SMS servisine bağlanılamadı.', 'error');
+  } finally {
+    button.disabled = false;
+    button.textContent = oldText;
+  }
+}
+async function verifyForgotPasswordCode() {
+  const phone10 = normalizeSmsPhone10(document.getElementById('forgotPhone')?.value);
+  const code = String(document.getElementById('forgotCode')?.value || '').trim();
+  const password = String(document.getElementById('forgotNewPassword')?.value || '');
+  const button = document.getElementById('forgotVerifyBtn');
+  if (phone10.length !== 10 || !phone10.startsWith('5')) return forgotPasswordMessage('Geçerli bir cep telefonu numarası girin.', 'error');
+  if (!/^\d{6}$/.test(code)) return forgotPasswordMessage('SMS ile gelen 6 haneli kodu girin.', 'error');
+  if (password.length < 6) return forgotPasswordMessage('Yeni şifre en az 6 karakter olmalıdır.', 'error');
+  button.disabled = true;
+  const oldText = button.textContent;
+  button.textContent = 'Doğrulanıyor…';
+  try {
+    const data = await pbysSmsRequest({ action: 'pbysSifreKodDogrula', telefon: phone10, kod: code, yeniSifre: password });
+    if (!data?.success) throw new Error(data?.message || 'Kod doğrulanamadı.');
+    const loginPhone = document.getElementById('loginPhone');
+    const loginPassword = document.getElementById('loginPassword');
+    if (loginPhone) loginPhone.value = `0${phone10}`;
+    if (loginPassword) loginPassword.value = password;
+    document.getElementById('forgotCode').value = '';
+    document.getElementById('forgotNewPassword').value = '';
+    forgotPasswordMessage(data.message || 'Şifreniz değiştirildi. Yeni şifrenizle giriş yapabilirsiniz.', 'success');
+    setTimeout(() => document.getElementById('forgotPasswordBox')?.classList.add('hidden'), 1100);
+  } catch (error) {
+    console.error(error);
+    forgotPasswordMessage(error?.message || 'Şifre değiştirilemedi.', 'error');
+  } finally {
+    button.disabled = false;
+    button.textContent = oldText;
+  }
+}
+
 function init() {
   document.querySelectorAll('.auth-tab').forEach(btn => btn.addEventListener('click', () => {
     document.querySelectorAll('.auth-tab').forEach(x => x.classList.remove('active'));
@@ -424,11 +536,49 @@ function init() {
   document.getElementById('modalClose').addEventListener('click', closeModal);
   document.getElementById('modalBackdrop').addEventListener('click', e => { if (e.target.id === 'modalBackdrop') closeModal(); });
   document.getElementById('notificationBtn').addEventListener('click', requestSiteNotifications);
+
+  document.getElementById('forgotPasswordBtn')?.addEventListener('click', toggleForgotPasswordBox);
+  document.getElementById('forgotSendBtn')?.addEventListener('click', sendForgotPasswordCode);
+  document.getElementById('forgotVerifyBtn')?.addEventListener('click', verifyForgotPasswordCode);
+  document.getElementById('forgotCode')?.addEventListener('input', e => {
+    e.target.value = String(e.target.value || '').replace(/\D/g, '').slice(0, 6);
+  });
+  document.getElementById('forgotNewPassword')?.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); verifyForgotPasswordCode(); }
+  });
+
+  window.addEventListener('popstate', event => {
+    if (!currentUser) return;
+    const page = event.state?.pbysPage;
+    if (page) {
+      navigateToPage(page, { fromPopState: true });
+      if (page === 'dashboard' && !event.state?.pbysGuard) {
+        history.pushState({ ...(event.state || {}), pbys: true, pbysPage: 'dashboard', pbysGuard: true }, '', `${location.pathname}${location.search}#dashboard`);
+      }
+      return;
+    }
+    navigateToPage('dashboard', { replace: true });
+    history.pushState({ pbys: true, pbysPage: 'dashboard', pbysGuard: true }, '', `${location.pathname}${location.search}#dashboard`);
+  });
+
   registerNotificationWorker();
   document.getElementById('todayLabel').textContent = new Intl.DateTimeFormat('tr-TR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' }).format(new Date());
   bootFirebase();
 }
 
+function pageFromHistoryState() {
+  const page = history.state?.pbysPage || sessionStorage.getItem(PBYS_PAGE_HISTORY_KEY) || 'dashboard';
+  const valid = new Set(getNavItems().map(x => x[0]));
+  return valid.has(page) ? page : 'dashboard';
+}
+function syncPageHistory(page, replace = false) {
+  if (!currentUser) return;
+  sessionStorage.setItem(PBYS_PAGE_HISTORY_KEY, page);
+  const state = { ...(history.state || {}), pbys: true, pbysPage: page };
+  const url = `${location.pathname}${location.search}#${encodeURIComponent(page)}`;
+  if (replace) history.replaceState(state, '', url);
+  else history.pushState(state, '', url);
+}
 function login(user) {
   currentUser = user;
   document.getElementById('authView').classList.add('hidden');
@@ -437,15 +587,25 @@ function login(user) {
   document.getElementById('sidebarRole').textContent = userRoleLabels(user) + (hasManagementPermission() || hasDashboardEditorPermission() ? ' · Yetkili hesap' : hasCookPermission() ? ' · Mutfak görünümü aktif' : '');
   document.getElementById('sidebarAvatar').textContent = initials(user.name);
   document.getElementById('topAvatar').textContent = initials(user.name);
-  currentPage = 'dashboard';
+
+  const hashPage = decodeURIComponent(String(location.hash || '').replace(/^#/, ''));
+  const valid = new Set(getNavItems().map(x => x[0]));
+  currentPage = valid.has(hashPage) ? hashPage : pageFromHistoryState();
   renderNav();
   renderPage();
+  syncPageHistory(currentPage, true);
+  // İlk geri tuşunun siteden çıkmak yerine PBYS içinde yakalanması için koruma kaydı.
+  if (currentPage === 'dashboard') {
+    history.pushState({ ...(history.state || {}), pbys: true, pbysPage: 'dashboard', pbysGuard: true }, '', `${location.pathname}${location.search}#dashboard`);
+  }
   startLaundryTimerWatcher();
 }
 async function logout() {
   stopLaundryTimerWatcher();
   try { window.FirebaseBridge?.stopRealtime(); await window.FirebaseBridge?.signOut(); } catch (_) {}
   currentUser = null;
+  sessionStorage.removeItem(PBYS_PAGE_HISTORY_KEY);
+  history.replaceState({}, '', `${location.pathname}${location.search}`);
   document.getElementById('appView').classList.add('hidden');
   document.getElementById('authView').classList.remove('hidden');
   document.getElementById('loginForm').reset();
@@ -504,10 +664,7 @@ function renderNav() {
   }).join('');
 
   nav.querySelectorAll('.nav-item').forEach(btn => btn.addEventListener('click', () => {
-    currentPage = btn.dataset.page;
-    document.getElementById('sidebar').classList.remove('open');
-    renderNav();
-    renderPage();
+    navigateToPage(btn.dataset.page);
   }));
 }
 function renderPage() {
@@ -536,7 +693,16 @@ function renderPage() {
   };
   (pages[currentPage] || renderDashboard)();
 }
-function goPage(page) { currentPage = page; renderNav(); renderPage(); }
+function navigateToPage(page, { replace = false, fromPopState = false } = {}) {
+  const valid = new Set(getNavItems().map(x => x[0]));
+  const target = valid.has(page) ? page : 'dashboard';
+  currentPage = target;
+  document.getElementById('sidebar')?.classList.remove('open');
+  renderNav();
+  renderPage();
+  if (!fromPopState) syncPageHistory(target, replace);
+}
+function goPage(page) { navigateToPage(page); }
 
 function concurrentLeaveCapacity() {
   const total = approvedUsers().length;
@@ -1060,20 +1226,43 @@ function attendanceForUserDate(userId, date) {
 }
 function dailyAttendanceStats(date) {
   const stats = { total: 0, present: 0 };
-  approvedUsers().forEach(user => { const a = attendanceForUserDate(user.id, date); stats.total++; stats[a.status] = (stats[a.status] || 0) + 1; });
-  stats.absent = stats.total - (stats.present || 0);
+  approvedUsers().forEach(user => {
+    const a = attendanceForUserDate(user.id, date);
+    stats.total++;
+    stats[a.status] = (stats[a.status] || 0) + 1;
+  });
+  stats.leaveTotal = (stats.annual_leave || 0) + (stats.excuse_leave || 0) + (stats.road_leave || 0);
+  stats.effectivePresent = (stats.present || 0) + (stats.work || 0) + (stats.watch || 0) + (stats.rest || 0);
+  stats.absent = Math.max(0, stats.total - stats.effectivePresent);
   return stats;
+}
+function attendancePercent(count, total) {
+  if (!total) return '—';
+  const value = Number(count || 0) / total * 100;
+  return `%${value.toLocaleString('tr-TR', { maximumFractionDigits: 1 })}`;
+}
+function attendanceMiniSummary(stats) {
+  const keys = ['watch','work','rest','medical','duty','temporary_duty','course','referral','excuse_leave','road_leave','other'];
+  return `<div class="attendance-mini-summary">${keys.map(key => {
+    const meta = attendanceStatusMeta(key);
+    const count = Number(stats[key] || 0);
+    return `<div class="attendance-mini-card att-mini-${key}">
+      <span class="attendance-mini-icon">${meta.icon}</span>
+      <div><small>${escapeHtml(meta.label)}</small><strong>${count} kişi</strong><em>${attendancePercent(count, stats.total)}</em></div>
+    </div>`;
+  }).join('')}</div>`;
 }
 function changeAttendanceDate(delta) { attendanceDateCursor = addDays(attendanceDateCursor, delta); attendanceWeekCursor = startOfWeek(attendanceDateCursor); currentPage === 'attendance-management' ? renderAttendanceManagement() : renderAttendanceOverview(); }
 function goTodayAttendance() { attendanceDateCursor = new Date(); attendanceWeekCursor = startOfWeek(new Date()); currentPage === 'attendance-management' ? renderAttendanceManagement() : renderAttendanceOverview(); }
 function setAttendanceDate(value) { if (!value) return; attendanceDateCursor = parseISO(value); attendanceWeekCursor = startOfWeek(attendanceDateCursor); currentPage === 'attendance-management' ? renderAttendanceManagement() : renderAttendanceOverview(); }
 function changeAttendanceWeek(delta) { attendanceWeekCursor = addDays(attendanceWeekCursor, delta * 7); renderAttendanceOverview(); }
 function attendanceBadge(status, compact=false) { const m = attendanceStatusMeta(status); return `<span class="attendance-badge att-${status}" title="${m.label}">${compact ? m.short : `${m.icon} ${m.label}`}</span>`; }
-function attendanceEditModal(userId) {
+function attendanceEditModal(userId, targetDate = null) {
   if (!hasPermission('attendance.manage')) return;
   const user = getUser(userId); if (!user) return;
-  const date = toISO(attendanceDateCursor); const current = attendanceForUserDate(userId, date);
-  showModal(`${user.name} · Yoklama Durumu`, `<form id="attendanceForm" class="form-grid">
+  const date = targetDate || toISO(attendanceDateCursor);
+  const current = attendanceForUserDate(userId, date);
+  showModal(`${user.name} · ${formatShortDate(date)} Yoklama Durumu`, `<form id="attendanceForm" class="form-grid">
     <label>Durum<select name="status">${Object.entries(attendanceStatuses).map(([key,val]) => `<option value="${key}" ${current.status === key ? 'selected' : ''}>${val.label}</option>`).join('')}</select></label>
     <label>Bulunduğu yer / görev yeri<input name="location" list="attendancePlaces" value="${escapeHtml(current.source === 'manual' ? current.location : '')}" placeholder="Örn. Yemekhane, Nizamiye"></label>
     <datalist id="attendancePlaces">${attendancePlaceSuggestions.map(x => `<option value="${escapeHtml(x)}"></option>`).join('')}</datalist>
@@ -1085,12 +1274,19 @@ function attendanceEditModal(userId) {
     <div class="span-2"><button class="btn btn-primary btn-block">Durumu Kaydet</button></div>
   </form>`);
   document.getElementById('attendanceForm').addEventListener('submit', e => {
-    e.preventDefault(); const f = new FormData(e.target); const start=f.get('start'), end=f.get('end');
+    e.preventDefault();
+    const f = new FormData(e.target);
+    const start=f.get('start'), end=f.get('end');
     if (end < start) return toast('Bitiş tarihi başlangıçtan önce olamaz.');
+    db.attendance = (db.attendance || []).filter(x => !(x.userId === user.id && x.start <= date && x.end >= date));
     const location = String(f.get('location') || '').trim();
     db.attendance.push({ id: Date.now(), userId: user.id, status: f.get('status'), start, end, location, task: String(f.get('task') || '').trim(), note: f.get('note'), source: 'manual' });
     logAudit('attendance.update', `${user.name}: ${start}–${end} ${attendanceStatusMeta(f.get('status')).label}${location ? ` · ${location}` : ''}`);
-    saveDB(); closeModal(); renderAttendanceManagement(); toast('Yoklama durumu kaydedildi.');
+    saveDB();
+    closeModal();
+    if (currentPage === 'attendance-overview') renderAttendanceOverview();
+    else renderAttendanceManagement();
+    toast('Yoklama durumu kaydedildi.');
   });
 }
 function clearManualAttendance(userId) {
@@ -1117,8 +1313,18 @@ function renderAttendanceManagement() {
     <div class="card section-gap"><div class="card-header"><div><h3>Personel durumları</h3><p>İzin sistemi otomatik; idari işler ayrıca personelin bulunduğu yeri (Yemekhane, Nizamiye vb.) kaydedebilir.</p></div></div><div class="table-wrap"><table><thead><tr><th>Personel</th><th>Rütbe / Görev</th><th>Bugünkü durum</th><th>Bulunduğu yer</th><th>Görev / Açıklama</th><th>Kaynak</th><th>Ek not</th><th>İşlem</th></tr></thead><tbody>${users.map(user=>{const a=attendanceForUserDate(user.id,date);return `<tr><td><button class="person-link" onclick="openAttendanceHistory(${user.id})">${escapeHtml(user.name)}</button></td><td>${escapeHtml(user.title||'')}</td><td>${attendanceBadge(a.status)}</td><td><strong>${escapeHtml(a.location||'—')}</strong></td><td>${escapeHtml(a.task||'—')}</td><td>${a.source==='leave'?'İzin sistemi':a.source==='manual'?'İdari işler':'Varsayılan'}</td><td>${escapeHtml(a.note||'—')}</td><td><button class="btn btn-primary btn-sm" onclick="attendanceEditModal(${user.id})">Düzenle</button>${a.source==='manual'?` <button class="btn btn-secondary btn-sm" onclick="clearManualAttendance(${user.id})">Kaydı Kaldır</button>`:''}</td></tr>`}).join('')}</tbody></table></div></div>`;
 }
 function attendanceGroupHtml(date) {
-  const groups={}; approvedUsers().forEach(u=>{const a=attendanceForUserDate(u.id,date); (groups[a.status] ||= []).push({user:u, attendance:a});});
-  return Object.entries(attendanceStatuses).filter(([key])=>groups[key]?.length).map(([key,meta])=>`<div class="attendance-group"><div>${attendanceBadge(key)}<strong>${groups[key].length} kişi</strong></div><p>${groups[key].map(x=>`${escapeHtml(x.user.name)}${x.attendance.location ? ` <small>(${escapeHtml(x.attendance.location)})</small>` : ''}${x.attendance.task ? ` <small>— ${escapeHtml(x.attendance.task)}</small>` : ''}`).join(', ')}</p></div>`).join('');
+  const groups={};
+  approvedUsers().forEach(u=>{ const a=attendanceForUserDate(u.id,date); (groups[a.status] ||= []).push({user:u, attendance:a}); });
+  return Object.entries(attendanceStatuses).filter(([key])=>groups[key]?.length).map(([key])=>`
+    <div class="attendance-group">
+      <div>${attendanceBadge(key)}<strong>${groups[key].length} kişi</strong></div>
+      <div class="attendance-name-list">${groups[key].map(x=>`
+        <div class="attendance-name-line">
+          <strong>${escapeHtml(x.user.name)}</strong>
+          ${x.attendance.location ? `<span>(${escapeHtml(x.attendance.location)})</span>` : ''}
+          ${x.attendance.task ? `<small>— ${escapeHtml(x.attendance.task)}</small>` : ''}
+        </div>`).join('')}</div>
+    </div>`).join('');
 }
 function attendanceLocationHtml(date) {
   const groups = {};
@@ -1130,17 +1336,30 @@ function attendanceLocationHtml(date) {
   });
   const entries = Object.entries(groups).sort((a,b) => a[0].localeCompare(b[0], 'tr'));
   if (!entries.length) return '<div class="empty">Bu tarih için konum / görev yeri kaydı girilmemiş.</div>';
-  return entries.map(([location, users]) => `<div class="attendance-group"><div><span class="attendance-badge att-present">📍 ${escapeHtml(location)}</span><strong>${users.length} kişi</strong></div><p>${users.map(u=>escapeHtml(u.name)).join(', ')}</p></div>`).join('');
+  return entries.map(([location, users]) => `<div class="attendance-group"><div><span class="attendance-badge att-present">📍 ${escapeHtml(location)}</span><strong>${users.length} kişi</strong></div><div class="attendance-name-list">${users.map(u=>`<div class="attendance-name-line"><strong>${escapeHtml(u.name)}</strong></div>`).join('')}</div></div>`).join('');
 }
 function renderAttendanceOverview() {
   if (!hasPermission('attendance.view')) return goPage('dashboard');
   const date=toISO(attendanceDateCursor), stats=dailyAttendanceStats(date), week=getWeekDates(attendanceWeekCursor);
+  const canEdit = hasPermission('attendance.manage');
   document.getElementById('pageContent').innerHTML=`
     <div class="attendance-toolbar"><div><span class="kitchen-eyebrow">KOMUTANLIK · PERSONEL DURUMU</span><h2>${formatDayDate(date)}</h2><p>Günlük mevcut ile haftalık personel hareketleri tek ekranda.</p></div><div class="calendar-actions"><button class="btn btn-secondary btn-sm" onclick="changeAttendanceDate(-1)">‹ Önceki Gün</button><button class="btn btn-secondary btn-sm" onclick="goTodayAttendance()">Bugün</button><input type="date" value="${date}" onchange="setAttendanceDate(this.value)"><button class="btn btn-primary btn-sm" onclick="changeAttendanceDate(1)">Sonraki Gün ›</button></div></div>
-    <div class="grid grid-4 section-gap">${metric('👥','Toplam',stats.total+' kişi','Aktif personel')}${metric('✅','Mevcut',stats.present+' kişi',stats.total?('%'+Math.round(stats.present/stats.total*100)+' mevcudiyet'):'—')}${metric('🏖️','İzinli',((stats.annual_leave||0)+(stats.excuse_leave||0)+(stats.road_leave||0))+' kişi','Onaylı izinler')}${metric('📍','Diğer durumda',(stats.absent-((stats.annual_leave||0)+(stats.excuse_leave||0)+(stats.road_leave||0)))+' kişi','Rapor, görev, kurs vb.')}</div>
-    <div class="card section-gap"><div class="card-header"><div><h3>Bugünkü detay</h3><p>Durumlara göre isim listesi; girilmişse bulunduğu yer parantez içinde gösterilir.</p></div></div><div class="card-body attendance-groups">${attendanceGroupHtml(date)}</div></div>
+
+    <div class="grid grid-3 section-gap attendance-main-metrics">
+      ${metric('👥','Toplam',stats.total+' kişi','Aktif personel')}
+      ${metric('✅','Mevcut',stats.effectivePresent+' kişi',stats.total?(attendancePercent(stats.effectivePresent,stats.total)+' mevcudiyet'):'—')}
+      ${metric('🏖️','İzinli',stats.leaveTotal+' kişi','Yıllık, mazeret ve yol izni')}
+    </div>
+
+    ${attendanceMiniSummary(stats)}
+
+    <div class="card section-gap"><div class="card-header"><div><h3>Bugünkü detay</h3><p>Durumlara göre isimler alt alta gösterilir; girilmişse bulunduğu yer de görünür.</p></div></div><div class="card-body attendance-groups">${attendanceGroupHtml(date)}</div></div>
     <div class="card section-gap"><div class="card-header"><div><h3>Bulunduğu yere göre dağılım</h3><p>Yemekhane, Nizamiye ve el ile girilen diğer görev yerleri</p></div></div><div class="card-body attendance-groups">${attendanceLocationHtml(date)}</div></div>
-    <div class="card section-gap"><div class="card-header calendar-toolbar"><div><h3>Haftalık yoklama</h3><p>${weekRangeText(attendanceWeekCursor)}</p></div><div class="calendar-actions"><button class="btn btn-secondary btn-sm" onclick="changeAttendanceWeek(-1)">‹ Önceki Hafta</button><button class="btn btn-secondary btn-sm" onclick="attendanceWeekCursor=startOfWeek(new Date());renderAttendanceOverview()">Bu Hafta</button><button class="btn btn-primary btn-sm" onclick="changeAttendanceWeek(1)">Sonraki Hafta ›</button></div></div><div class="table-wrap"><table class="attendance-week-table"><thead><tr><th>Personel</th>${week.map(d=>`<th>${new Intl.DateTimeFormat('tr-TR',{weekday:'short'}).format(parseISO(d))}<small>${formatShortDate(d).slice(0,5)}</small></th>`).join('')}</tr></thead><tbody>${approvedUsers().map(user=>`<tr><td><button class="person-link" onclick="openAttendanceHistory(${user.id})">${escapeHtml(user.name)}</button><small class="table-sub">${escapeHtml(user.title||'')}</small></td>${week.map(d=>{const a=attendanceForUserDate(user.id,d);return `<td title="${escapeHtml(a.location || attendanceStatusMeta(a.status).label)}">${attendanceBadge(a.status,true)}${a.location ? `<small class="attendance-location-mini">${escapeHtml(a.location)}</small>` : ''}${a.task ? `<small class="attendance-task-mini">${escapeHtml(a.task)}</small>` : ''}</td>`}).join('')}</tr>`).join('')}</tbody></table></div></div>`;
+
+    <div class="card section-gap">
+      <div class="card-header calendar-toolbar"><div><h3>Haftalık yoklama</h3><p>${weekRangeText(attendanceWeekCursor)}${canEdit ? ' · Rozete dokunarak o günün yoklamasını düzenleyebilirsiniz.' : ''}</p></div><div class="calendar-actions"><button class="btn btn-secondary btn-sm" onclick="changeAttendanceWeek(-1)">‹ Önceki Hafta</button><button class="btn btn-secondary btn-sm" onclick="attendanceWeekCursor=startOfWeek(new Date());renderAttendanceOverview()">Bu Hafta</button><button class="btn btn-primary btn-sm" onclick="changeAttendanceWeek(1)">Sonraki Hafta ›</button></div></div>
+      <div class="attendance-week-wrap"><table class="attendance-week-table"><thead><tr><th>Personel</th>${week.map(d=>`<th>${new Intl.DateTimeFormat('tr-TR',{weekday:'short'}).format(parseISO(d))}<small>${formatShortDate(d).slice(0,5)}</small></th>`).join('')}</tr></thead><tbody>${approvedUsers().map(user=>`<tr><td><button class="person-link" onclick="openAttendanceHistory(${user.id})">${escapeHtml(user.name)}</button><small class="table-sub">${escapeHtml(user.title||'')}</small></td>${week.map(d=>{const a=attendanceForUserDate(user.id,d); const content=`${attendanceBadge(a.status,true)}${a.location ? `<small class="attendance-location-mini">${escapeHtml(a.location)}</small>` : ''}${a.task ? `<small class="attendance-task-mini">${escapeHtml(a.task)}</small>` : ''}`; return `<td title="${escapeHtml(a.location || attendanceStatusMeta(a.status).label)}">${canEdit ? `<button class="attendance-cell-button" onclick="attendanceEditModal(${user.id}, '${d}')" aria-label="${escapeHtml(user.name)} ${formatShortDate(d)} yoklamasını düzenle">${content}</button>` : content}</td>`}).join('')}</tr>`).join('')}</tbody></table></div>
+    </div>`;
 }
 
 function getWeekDates(cursor) { return Array.from({ length: 7 }, (_, i) => toISO(addDays(startOfWeek(cursor), i))); }
@@ -1972,8 +2191,15 @@ function machineStatusModal(machine) {
 const laundryMachines = ['Beyaz Çamaşır Makinesi','Gri Çamaşır Makinesi','Kurutma Makinesi'];
 function laundryMachineState(machine) { return (db.settings.laundryMachineStatus || {})[machine] || 'active'; }
 function laundryStateLabel(state) { return state === 'broken' ? 'Arızalı' : state === 'maintenance' ? 'Bakımda' : 'Aktif'; }
+function laundryEffectiveStatus(run) {
+  if (!run) return 'idle';
+  if (run.status === 'running' && run.endAt && new Date(run.endAt).getTime() <= Date.now()) return 'finished';
+  return run.status || 'finished';
+}
 function activeLaundryRun(machine) {
-  return (db.laundryRuns || []).filter(x => x.machine === machine && !x.clearedAt && ['running','stopped','finished'].includes(x.status)).sort((a,b)=>Number(b.id)-Number(a.id))[0] || null;
+  return (db.laundryRuns || [])
+    .filter(x => x.machine === machine && !x.clearedAt && ['running','stopped'].includes(laundryEffectiveStatus(x)))
+    .sort((a,b)=>Number(b.id)-Number(a.id))[0] || null;
 }
 function formatClockFromIso(value) { return value ? new Date(value).toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'}) : '—'; }
 function formatLaundryRemaining(ms) {
@@ -1981,23 +2207,41 @@ function formatLaundryRemaining(ms) {
   const min = Math.floor(totalSec / 60), sec = totalSec % 60;
   return `${min}:${String(sec).padStart(2,'0')}`;
 }
+function laundryRunOwnerName(run) { return String(run?.userName || getUser(run?.userId)?.name || 'Bilinmeyen personel'); }
+function laundryActualEnd(run) {
+  if (!run) return null;
+  if (run.resetAt) return run.resetAt;
+  if (run.stoppedAt) return run.stoppedAt;
+  if (run.finishedAt) return run.finishedAt;
+  if (run.endAt && new Date(run.endAt).getTime() <= Date.now()) return run.endAt;
+  return null;
+}
+function laundryRunStatusLabel(run) {
+  const status = laundryEffectiveStatus(run);
+  if (run?.resetAt) return 'Sıfırlandı';
+  if (status === 'stopped') return 'Durduruldu';
+  if (status === 'finished') return 'Tamamlandı';
+  if (status === 'running') return 'Çalışıyor';
+  return 'Geçmiş';
+}
 function renderLaundryRunCard(machine) {
-  const state = laundryMachineState(machine), run = activeLaundryRun(machine), user = run ? getUser(run.userId) : null;
+  const state = laundryMachineState(machine), run = activeLaundryRun(machine);
   if (run) {
-    const running = run.status === 'running', stopped = run.status === 'stopped', finished = run.status === 'finished';
+    const status = laundryEffectiveStatus(run);
+    const running = status === 'running', stopped = status === 'stopped';
     const isOwner = run.userId === currentUser.id;
-    const cardState = running ? 'running' : stopped ? 'stopped' : 'finished';
-    const badge = running ? 'Çalışıyor' : stopped ? 'Durduruldu' : 'Tamamlandı';
-    const ownerSub = running ? 'çamaşırını yıkıyor' : stopped ? '· sayacı durdurdu' : '· programı tamamlandı';
-    const remaining = stopped ? formatLaundryRemaining(run.remainingMs) : finished ? '00:00' : '—';
+    const cardState = running ? 'running' : 'stopped';
+    const badge = running ? 'Çalışıyor' : 'Durduruldu';
+    const ownerSub = running ? 'çamaşırını yıkıyor' : '· sayacı durdurdu';
+    const remaining = stopped ? formatLaundryRemaining(run.remainingMs) : '—';
     const actionButtons = isOwner ? `<div class="laundry-run-actions">
       ${running ? `<button class="btn btn-warning" onclick="stopLaundryRun(${run.id})">Sayacı Durdur</button>` : ''}
       <button class="btn btn-danger" onclick="resetLaundryRun(${run.id})">Sayacı Sıfırla</button>
     </div>` : '';
     return `<article class="laundry-live-card ${cardState}">
       <div class="laundry-live-head"><div><span class="laundry-machine-dot"></span><strong>${escapeHtml(machine)}</strong></div><span class="laundry-live-badge ${cardState}">${badge}</span></div>
-      <div class="laundry-owner"><span>Sayacı başlatan</span><strong>${escapeHtml(user?.name || 'Bilinmeyen personel')}</strong><small>${ownerSub}</small></div>
-      <div class="laundry-live-meta"><div><span>Başlangıç</span><strong>${formatClockFromIso(run.startAt)}</strong></div><div><span>${running?'Tahmini bitiş':stopped?'Durduruldu':'Bitiş'}</span><strong>${stopped?formatClockFromIso(run.stoppedAt):formatClockFromIso(run.endAt)}</strong></div><div><span>${running?'Kalan süre':stopped?'Kalan süre':'Durum'}</span><strong ${running?`data-run-end="${run.endAt}"`:''}>${running?'—':stopped?remaining:'Tamamlandı'}</strong></div></div>
+      <div class="laundry-owner"><span>Sayacı başlatan</span><strong>${escapeHtml(laundryRunOwnerName(run))}</strong><small>${ownerSub}</small></div>
+      <div class="laundry-live-meta"><div><span>Başlangıç</span><strong>${formatClockFromIso(run.startAt)}</strong></div><div><span>${running?'Tahmini bitiş':'Durduruldu'}</span><strong>${running?formatClockFromIso(run.endAt):formatClockFromIso(run.stoppedAt)}</strong></div><div><span>Kalan süre</span><strong ${running?`data-run-end="${run.endAt}"`:''}>${running?'—':remaining}</strong></div></div>
       ${actionButtons}
     </article>`;
   }
@@ -2007,17 +2251,33 @@ function renderLaundryRunCard(machine) {
     ${state==='active' ? `<button class="btn btn-primary btn-block" onclick="startLaundryModal('${machine}')">Sayacı Başlat</button>` : ''}
   </article>`;
 }
-
+function isSameLocalDay(iso, date = new Date()) {
+  if (!iso) return false;
+  const d = new Date(iso);
+  return d.getFullYear() === date.getFullYear() && d.getMonth() === date.getMonth() && d.getDate() === date.getDate();
+}
+function renderLaundryTodayHistory() {
+  const rows = (db.laundryRuns || []).filter(run => isSameLocalDay(run.startAt)).sort((a,b)=>new Date(b.startAt)-new Date(a.startAt));
+  if (!rows.length) return '<div class="empty">Bugün henüz çamaşır makinesi kullanımı kaydedilmedi.</div>';
+  return `<div class="laundry-history-list">${rows.map(run => {
+    const end = laundryActualEnd(run);
+    return `<div class="laundry-history-row">
+      <div class="laundry-history-person"><span>${escapeHtml(run.machine || 'Çamaşır Makinesi')}</span><strong>${escapeHtml(laundryRunOwnerName(run))}</strong></div>
+      <div class="laundry-history-time"><span>${formatClockFromIso(run.startAt)}</span><b>→</b><span>${end ? formatClockFromIso(end) : 'Devam ediyor'}</span></div>
+      <span class="laundry-history-status">${escapeHtml(laundryRunStatusLabel(run))}</span>
+    </div>`;
+  }).join('')}</div>`;
+}
 function renderLaundry() {
   db.settings.laundryMachineStatus ||= {'Beyaz Çamaşır Makinesi':'active','Gri Çamaşır Makinesi':'active','Kurutma Makinesi':'broken'};
   db.laundryRuns ||= [];
   const permission = ('Notification' in window) ? Notification.permission : 'unsupported';
   const notificationText = permission === 'granted' ? 'Bildirimler açık' : permission === 'denied' ? 'Bildirimler engelli' : permission === 'unsupported' ? 'Desteklenmiyor' : 'Bildirimleri aç';
   document.getElementById('pageContent').innerHTML=`
-    <div class="card laundry-live-panel"><div class="card-header"><div><h3>🧺 Çamaşır Sayacı</h3><p>Makineyi kullanan kişi sayacı başlatır. Sayacı yalnızca başlatan kullanıcı durdurabilir veya sıfırlayabilir.</p></div><button class="btn btn-secondary btn-sm" onclick="requestSiteNotifications()">🔔 ${notificationText}</button></div><div class="card-body laundry-live-grid">${laundryMachines.map(renderLaundryRunCard).join('')}</div></div>`;
+    <div class="card laundry-live-panel"><div class="card-header"><div><h3>🧺 Çamaşır Sayacı</h3><p>Makineyi kullanan kişi sayacı başlatır. Sayacı yalnızca başlatan kullanıcı durdurabilir veya sıfırlayabilir.</p></div><button class="btn btn-secondary btn-sm" onclick="requestSiteNotifications()">🔔 ${notificationText}</button></div><div class="card-body laundry-live-grid">${laundryMachines.map(renderLaundryRunCard).join('')}</div></div>
+    <div class="card section-gap"><div class="card-header"><div><h3>Bugünkü Makine Kullanımları</h3><p>Sayaç tamamlansa veya sıfırlansa bile kayıt korunur. Makinede unutulan çamaşırın son kullanıcısı buradan görülebilir.</p></div></div><div class="card-body">${renderLaundryTodayHistory()}</div></div>`;
   updateLaundryCountdowns();
 }
-
 function startLaundryModal(machine) {
   if (laundryMachineState(machine) !== 'active') return toast('Bu makine aktif değil.');
   if (activeLaundryRun(machine)) return toast('Bu makinede aktif bir sayaç bulunuyor.');
@@ -2028,11 +2288,12 @@ function startLaundryModal(machine) {
     <div class="span-2"><button class="btn btn-primary btn-block">Sayacı Başlat</button></div>
   </form>`);
   document.getElementById('laundryStartForm').addEventListener('submit', async e => {
-    e.preventDefault(); const minutes = Math.max(1, Math.min(240, Number(new FormData(e.target).get('minutes') || 0)));
+    e.preventDefault();
+    const minutes = Math.max(1, Math.min(240, Number(new FormData(e.target).get('minutes') || 0)));
     if (activeLaundryRun(machine)) return toast('Makinede başka bir aktif sayaç bulunuyor.');
     const startAt = new Date(), endAt = new Date(startAt.getTime() + minutes * 60000), id = Date.now();
     db.laundryRuns ||= [];
-    db.laundryRuns.push({ id, userId:currentUser.id, machine, durationMinutes:minutes, startAt:startAt.toISOString(), endAt:endAt.toISOString(), status:'running', createdAt:startAt.toISOString() });
+    db.laundryRuns.push({ id, userId: currentUser.id, userName: currentUser.name, machine, durationMinutes: minutes, startAt: startAt.toISOString(), endAt: endAt.toISOString(), status: 'running', createdAt: startAt.toISOString() });
     localStorage.removeItem(laundryNotificationKey({id}));
     logAudit('laundry.start', `${currentUser.name} · ${machine} · ${minutes} dakika`);
     saveDB(); closeModal(); renderLaundry(); toast(`${machine} sayacı ${minutes} dakika için başlatıldı.`);
@@ -2042,7 +2303,7 @@ function startLaundryModal(machine) {
 function stopLaundryRun(id) {
   const run=(db.laundryRuns||[]).find(x=>x.id===Number(id)); if(!run)return;
   if(run.userId!==currentUser.id)return toast('Bu sayacı yalnızca başlatan kullanıcı durdurabilir.');
-  if(run.status!=='running')return toast('Sayaç zaten çalışmıyor.');
+  if(laundryEffectiveStatus(run)!=='running')return toast('Sayaç zaten çalışmıyor.');
   const now=new Date();
   run.remainingMs=Math.max(0,new Date(run.endAt).getTime()-now.getTime());
   run.status='stopped'; run.stoppedAt=now.toISOString(); run.stoppedBy=currentUser.id;
@@ -2053,10 +2314,12 @@ function stopLaundryRun(id) {
 function resetLaundryRun(id) {
   const run=(db.laundryRuns||[]).find(x=>x.id===Number(id)); if(!run)return;
   if(run.userId!==currentUser.id)return toast('Bu sayacı yalnızca başlatan kullanıcı sıfırlayabilir.');
-  run.status='reset'; run.resetAt=new Date().toISOString(); run.clearedAt=run.resetAt; run.resetBy=currentUser.id;
+  const now = new Date().toISOString();
+  if (!run.stoppedAt && laundryEffectiveStatus(run) === 'running') run.stoppedAt = now;
+  run.status='reset'; run.resetAt=now; run.clearedAt=now; run.resetBy=currentUser.id;
   localStorage.setItem(laundryNotificationKey(run),'1');
   logAudit('laundry.reset', `${currentUser.name} · ${run.machine} · sayaç sıfırlandı`);
-  saveDB(); renderLaundry(); toast('Sayaç sıfırlandı. Makine yeniden kullanılabilir.');
+  saveDB(); renderLaundry(); toast('Sayaç sıfırlandı. Geçmiş kullanım kaydı korunarak makine yeniden kullanıma açıldı.');
 }
 
 function canViewReport(type) {

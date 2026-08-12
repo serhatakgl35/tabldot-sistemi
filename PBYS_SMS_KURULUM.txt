@@ -1,0 +1,24 @@
+PBYS SMS İLE ŞİFRE SIFIRLAMA - TEK SEFERLİK KURULUM
+
+1) Mevcut Kantin10 SMS Google Apps Script projenizi açın.
+2) PBYS_SMS_SIFRE_SIFIRLAMA.gs dosyasının içeriğini projeye yeni bir .gs dosyası olarak ekleyin.
+3) Mevcut doPost(e) fonksiyonunuzun EN BAŞINA şu iki satırı ekleyin:
+
+var pbysCevap = pbysPasswordResetDoPost(e);
+if (pbysCevap) return pbysCevap;
+
+4) Project Settings > Script Properties içine aşağıdaki değerleri ekleyin:
+   ILETI_KEY = mevcut İletiMerkezi API anahtarınız
+   ILETI_HASH = mevcut İletiMerkezi hash değeriniz
+   ILETI_SENDER = mevcut onaylı SMS başlığınız
+   FIREBASE_SERVICE_ACCOUNT_JSON = gencservi-5d47e Firebase servis hesabının TAM JSON içeriği
+   PBYS_RESET_SECRET = en az 32 karakter rastgele gizli metin
+
+5) Apps Script Web App'i yeniden dağıtın (New version / Deploy).
+6) Aynı dağıtım URL'sini kullanıyorsanız app.js içindeki PBYS_SMS_WEB_APP_URL değişmeden kalabilir.
+   Yeni ayrı bir Web App oluşturduysanız app.js içindeki PBYS_SMS_WEB_APP_URL değerini yeni URL ile değiştirin.
+
+GÜVENLİK
+- İletiMerkezi anahtarı/hash veya Firebase servis hesabı JSON'u app.js / GitHub içine yazılmamalıdır.
+- Bunlar yalnızca Apps Script'in Script Properties alanında tutulmalıdır.
+- Kodlar 5 dakika geçerlidir, 5 hatalı denemeden sonra iptal edilir ve aynı numaraya 60 saniye içinde tekrar kod gönderilmez.

@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=9.2.5" />
+  <link rel="stylesheet" href="styles.css?v=9.3.0" />
 </head>
 <body>
   <div id="toast" class="toast" aria-live="polite"></div>
@@ -42,6 +42,24 @@
           <input id="loginPassword" type="password" placeholder="••••••" required />
         </label>
         <button class="btn btn-primary btn-block" type="submit">Sisteme Giriş</button>
+        <button id="forgotPasswordBtn" class="auth-forgot-link" type="button">Şifremi Unuttum</button>
+        <div id="forgotPasswordBox" class="forgot-password-box hidden">
+          <div class="forgot-password-title"><strong>SMS ile Şifre Sıfırlama</strong><span>Kayıtlı telefonunuza 6 haneli doğrulama kodu gönderilir.</span></div>
+          <label>Telefon numarası
+            <input id="forgotPhone" type="tel" placeholder="05xx xxx xx xx" autocomplete="tel" />
+          </label>
+          <button id="forgotSendBtn" class="btn btn-secondary btn-block" type="button">Doğrulama Kodu Gönder</button>
+          <div id="forgotVerifyArea" class="forgot-verify-area hidden">
+            <label>SMS doğrulama kodu
+              <input id="forgotCode" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="6 haneli kod" />
+            </label>
+            <label>Yeni şifre
+              <input id="forgotNewPassword" type="password" minlength="6" autocomplete="new-password" placeholder="En az 6 karakter" />
+            </label>
+            <button id="forgotVerifyBtn" class="btn btn-primary btn-block" type="button">Şifreyi Değiştir</button>
+          </div>
+          <div id="forgotPasswordMessage" class="forgot-password-message" aria-live="polite"></div>
+        </div>
         <div id="bootstrapBox" class="bootstrap-box hidden">
           <strong>İlk kurulum gerekli</strong>
           <span>Sistemde henüz admin hesabı yok. İlk yöneticiyi buradan oluşturun.</span>
@@ -123,7 +141,7 @@
     </div>
   </div>
 
-  <script type="module" src="firebase.js?v=9.2.5"></script>
-  <script src="app.js?v=9.2.5"></script>
+  <script type="module" src="firebase.js?v=9.3.0"></script>
+  <script src="app.js?v=9.3.0"></script>
 </body>
 </html>

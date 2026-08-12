@@ -81,6 +81,10 @@ service cloud.firestore {
       return isAdmin() || hasRole('commander') || hasExtra('leave.plan');
     }
 
+    function leavePreferenceManager() {
+      return isAdmin() || hasRole('commander') || hasExtra('leave.preference.manage');
+    }
+
     function laundryManager() {
       return isAdmin() || hasExtra('laundry.manage');
     }
@@ -99,6 +103,18 @@ service cloud.firestore {
 
     function isOwnNumericUserId(data) {
       return approved() && data.userId == myId();
+    }
+
+    function ownLaundryRunUpdate() {
+      return approved()
+        && resource.data._pbysType == 'run'
+        && request.resource.data._pbysType == 'run'
+        && resource.data.userId == myId()
+        && request.resource.data.userId == myId()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status', 'remainingMs', 'stoppedAt', 'stoppedBy',
+          'finishedAt', 'resetAt', 'resetBy', 'clearedAt'
+        ]);
     }
 
     match /users/{uid} {
@@ -139,8 +155,11 @@ service cloud.firestore {
         || (financeManager() && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'bankName', 'accountName', 'iban', 'balancePeriod'
         ]))
-        || ((approved() || laundryManager()) && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+        || (laundryManager() && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'laundryMachineStatus'
+        ]))
+        || (leavePreferenceManager() && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'leavePreferencesOpen'
         ]));
       allow delete: if isAdmin();
     }
@@ -207,7 +226,9 @@ service cloud.firestore {
     match /laundryReservations/{docId} {
       allow read: if approved();
       allow create: if approved() && isOwnNumericUserId(request.resource.data);
-      allow update: if laundryManager();
+      // Personel yalnızca kendi başlattığı sayaç kaydının durum alanlarını
+      // durdurma/tamamlama/sıfırlama amacıyla değiştirebilir.
+      allow update: if laundryManager() || ownLaundryRunUpdate();
       allow delete: if approved() && (isOwnNumericUserId(resource.data) || laundryManager());
     }
 
