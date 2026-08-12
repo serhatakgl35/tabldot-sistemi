@@ -428,6 +428,32 @@ async function saveDailyMenu(dateValue, menu) {
   return payload;
 }
 
+
+async function loadKitchenSnapshot(dateValue) {
+  if (!auth.currentUser) throw new Error('Oturum bulunamadı.');
+  const date = String(dateValue || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('Geçerli bir tarih bulunamadı.');
+
+  // Aşçı ekranı genel state/realtime önbelleğine bağımlı kalmasın.
+  // Her açılış/yenilemede operasyonel veriler doğrudan Firestore'dan okunur.
+  const [usersSnap, leavesSnap, attendanceSnap, mealSnap] = await Promise.all([
+    getDocs(query(collection(firestore, COLLECTIONS.users), where('approved', '==', true))),
+    getDocs(collection(firestore, COLLECTIONS.leaveRequests)),
+    getDocs(collection(firestore, COLLECTIONS.attendance)),
+    getDocs(query(collection(firestore, COLLECTIONS.mealChoices), where('date', '==', date)))
+  ]);
+
+  const docs = snap => snap.docs.map(d => ({ ...d.data(), _docId: d.id }));
+  return {
+    date,
+    users: docs(usersSnap),
+    leaveRequests: docs(leavesSnap),
+    attendance: docs(attendanceSnap),
+    mealChoices: docs(mealSnap),
+    fetchedAt: new Date().toISOString()
+  };
+}
+
 async function currentCloudMaps() {
   const state = await loadState(false);
   return stateToMaps(state);
@@ -557,6 +583,7 @@ window.FirebaseBridge = {
   loadState,
   saveState,
   saveDailyMenu,
+  loadKitchenSnapshot,
   startRealtime,
   stopRealtime
 };
