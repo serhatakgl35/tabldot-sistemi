@@ -270,7 +270,7 @@ async function collectionDataSafe(name) {
           if (!isPermissionDenied(fallbackError)) throw fallbackError;
         }
       }
-      console.warn(`Firestore koleksiyonu bu kullanıcı için kapalı: ${name}. Aşçı ekranında izin/yoklama görünmüyorsa V9.4.2 firestore.rules dosyasını Firebase Console'da yayımlayın.`);
+      console.warn(`Firestore koleksiyonu bu kullanıcı için kapalı: ${name}`);
       return [];
     }
     throw error;
