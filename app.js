@@ -346,6 +346,13 @@ function firebaseReadyPromise() {
   if (window.FirebaseBridge?.ready) return Promise.resolve();
   return new Promise(resolve => window.addEventListener('firebase-ready', resolve, { once: true }));
 }
+function finishStartup(showAuth = false) {
+  document.getElementById('loadingView')?.classList.add('hidden');
+  if (showAuth && !currentUser) {
+    document.getElementById('appView')?.classList.add('hidden');
+    document.getElementById('authView')?.classList.remove('hidden');
+  }
+}
 async function bootFirebase() {
   try {
     await firebaseReadyPromise();
@@ -357,13 +364,19 @@ async function bootFirebase() {
     const authUser = await window.FirebaseBridge.waitForAuthState();
     if (authUser) {
       const profile = await window.FirebaseBridge.getUserProfile(authUser.uid);
-      if (profile?.approved && !profile?.rejected) await enterAuthenticatedApp(profile);
-      else await window.FirebaseBridge.signOut();
+      if (profile?.approved && !profile?.rejected) {
+        await enterAuthenticatedApp(profile);
+        setCloudStatus('online', 'Firestore bağlı');
+        return;
+      }
+      await window.FirebaseBridge.signOut();
     }
     setCloudStatus('online', 'Firestore bağlı');
+    finishStartup(true);
   } catch (error) {
     console.error(error);
     setCloudStatus('offline', 'Firebase bağlantı hatası');
+    finishStartup(true);
     toast(window.FirebaseBridge?.errorMessage(error) || 'Firebase bağlantısı kurulamadı.');
   }
 }
@@ -581,6 +594,7 @@ function syncPageHistory(page, replace = false) {
 }
 function login(user) {
   currentUser = user;
+  document.getElementById('loadingView')?.classList.add('hidden');
   document.getElementById('authView').classList.add('hidden');
   document.getElementById('appView').classList.remove('hidden');
   document.getElementById('sidebarName').textContent = user.name;
@@ -606,6 +620,7 @@ async function logout() {
   currentUser = null;
   sessionStorage.removeItem(PBYS_PAGE_HISTORY_KEY);
   history.replaceState({}, '', `${location.pathname}${location.search}`);
+  document.getElementById('loadingView')?.classList.add('hidden');
   document.getElementById('appView').classList.add('hidden');
   document.getElementById('authView').classList.remove('hidden');
   document.getElementById('loginForm').reset();
@@ -939,11 +954,27 @@ function activitiesForRange(start, end) {
   return (db.weeklyActivities || []).filter(x => x.date >= start && x.date <= end).slice().sort((a,b) => `${a.date} ${a.time || ''} ${a.title || ''}`.localeCompare(`${b.date} ${b.time || ''} ${b.title || ''}`, 'tr'));
 }
 function activityRow(activity, compact = false) {
-  const action = hasPermission('activity.manage') ? `<span class="activity-actions"><button class="btn btn-secondary btn-sm" onclick="activityModal(${activity.id})">Düzenle</button><button class="btn btn-danger btn-sm" onclick="deleteActivity(${activity.id})">Sil</button></span>` : '';
-  return `<div class="activity-row ${activity.date === toISO(new Date()) ? 'today' : ''}">
+  const action = hasPermission('activity.manage') ? `<span class="activity-actions"><button class="btn btn-secondary btn-sm" onclick="event.stopPropagation(); activityModal(${activity.id})">Düzenle</button><button class="btn btn-danger btn-sm" onclick="event.stopPropagation(); deleteActivity(${activity.id})">Sil</button></span>` : '';
+  return `<div class="activity-row activity-row-clickable ${activity.date === toISO(new Date()) ? 'today' : ''}" role="button" tabindex="0" aria-label="${escapeHtml(activity.title || 'Faaliyet')} detayını aç" onclick="showActivityDetail(${activity.id})" onkeydown="if(event.target!==this)return;if(event.key==='Enter'||event.key===' '){event.preventDefault();showActivityDetail(${activity.id})}">
     <div class="activity-time">${escapeHtml(activity.time || '—')}</div>
     <div class="activity-main"><strong>${escapeHtml(activity.title || 'Faaliyet')}</strong>${activity.place ? `<span>📍 ${escapeHtml(activity.place)}</span>` : ''}${!compact && activity.note ? `<small>${escapeHtml(activity.note)}</small>` : ''}</div>${action}
   </div>`;
+}
+function showActivityDetail(id) {
+  const activity = (db.weeklyActivities || []).find(x => x.id === Number(id));
+  if (!activity) return toast('Faaliyet kaydı bulunamadı.');
+  const noteHtml = activity.note
+    ? `<div class="activity-detail-note"><span>Not / Açıklama</span><p>${escapeHtml(activity.note).replace(/\n/g, '<br>')}</p></div>`
+    : `<div class="activity-detail-note empty-note"><span>Not / Açıklama</span><p>Bu faaliyet için açıklama girilmemiş.</p></div>`;
+  showModal('Faaliyet Detayı', `<div class="activity-detail">
+    <div class="activity-detail-title"><strong>${escapeHtml(activity.title || 'Faaliyet')}</strong></div>
+    <div class="activity-detail-grid">
+      <div><span>Tarih</span><strong>${formatDayDate(activity.date)}</strong></div>
+      <div><span>Saat</span><strong>${escapeHtml(activity.time || '—')}</strong></div>
+      <div class="activity-detail-wide"><span>Yer / Görev Yeri</span><strong>${activity.place ? escapeHtml(activity.place) : '—'}</strong></div>
+    </div>
+    ${noteHtml}
+  </div>`);
 }
 function renderWeeklyActivitiesCard(commanderView = false) {
   const start = toISO(startOfWeek(new Date())); const end = toISO(addDays(startOfWeek(new Date()), 6)); const today = toISO(new Date());
