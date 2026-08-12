@@ -264,7 +264,7 @@ function notice(title, sub) { return `<div class="quick-item"><div><strong>${tit
 
 async function registerNotificationWorker() {
   if (!('serviceWorker' in navigator) || !window.isSecureContext) return null;
-  try { return await navigator.serviceWorker.register('./sw.js?v=9.3.6'); }
+  try { return await navigator.serviceWorker.register('./sw.js?v=9.3.7'); }
   catch (error) { console.warn('Bildirim service worker kaydı yapılamadı:', error); return null; }
 }
 async function requestSiteNotifications() {
