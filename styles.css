@@ -1308,3 +1308,44 @@ input:hover,select:hover,textarea:hover{border-color:#cfd8e3}input:focus,select:
 .activity-detail-note p{margin:0;font-size:13px;line-height:1.65;color:#334155;overflow-wrap:anywhere}
 .activity-detail-note.empty-note p{color:#94a3b8;font-style:italic}
 @media(max-width:520px){.activity-detail-grid{grid-template-columns:1fr}.activity-detail-wide{grid-column:auto}.activity-detail-title strong{font-size:16px}}
+
+
+/* PBYS V9.3.4 — Kompakt yemek tercihi ekranı */
+.meal-preference-card{overflow:hidden}
+.meal-summary-compact{padding:14px 18px;min-height:auto}
+.meal-compact-toolbar{padding-top:16px;padding-bottom:16px}
+.meal-compact-body{padding-top:10px}
+.meal-compact-list{display:grid;gap:7px}
+.meal-compact-row{
+  display:grid;
+  grid-template-columns:minmax(210px,1.15fr) minmax(180px,.8fr) minmax(180px,.8fr);
+  align-items:end;
+  gap:10px;
+  padding:9px 11px;
+  border:1px solid var(--line,#dbe3ee);
+  border-radius:11px;
+  background:#fff;
+}
+.meal-compact-row:nth-child(even){background:#fbfdff}
+.meal-compact-row.meal-on-leave{background:#fffbeb;border-color:#fde68a}
+.meal-compact-date{display:flex;align-items:center;gap:8px;min-height:38px}
+.meal-compact-date strong{font-size:13px;text-transform:capitalize}
+.meal-compact-field{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:8px;margin:0}
+.meal-compact-field>span{font-size:11px;font-weight:800;color:var(--muted,#64748b)}
+.meal-compact-select{min-height:36px;height:36px;padding:5px 30px 5px 9px;border-radius:9px;font-size:12px;background:#fff}
+.meal-compact-leave{grid-column:2 / -1;display:flex;align-items:center;gap:9px;min-height:38px}
+.meal-compact-leave small{color:var(--muted,#64748b)}
+.meal-compact-save{display:flex;justify-content:flex-end;margin-top:10px}
+.cook-personnel-meal-list .status{white-space:nowrap}
+@media(max-width:760px){
+  .meal-summary-compact{padding:12px 13px;gap:8px}
+  .meal-compact-toolbar{padding:13px}
+  .meal-compact-body{padding:8px 10px 12px}
+  .meal-compact-list{gap:6px}
+  .meal-compact-row{grid-template-columns:1fr 1fr;padding:9px;gap:7px}
+  .meal-compact-date{grid-column:1 / -1;min-height:auto;padding-bottom:2px}
+  .meal-compact-field{grid-template-columns:1fr;gap:4px}
+  .meal-compact-select{width:100%;min-width:0;height:34px;min-height:34px;font-size:11px}
+  .meal-compact-leave{grid-column:1 / -1;align-items:flex-start;flex-direction:column;gap:4px}
+  .meal-compact-save .btn{width:100%}
+}
