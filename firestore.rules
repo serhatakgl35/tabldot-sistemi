@@ -18,18 +18,20 @@ service cloud.firestore {
     }
 
     function approved() {
-      return hasProfile() && me().approved == true && me().rejected != true;
+      return hasProfile()
+        && me().get('approved', false) == true
+        && me().get('rejected', false) != true;
     }
 
     function hasRole(role) {
       return approved() && (
-        me().role == role ||
-        (me().roles is list && me().roles.hasAny([role]))
+        me().get('role', '') == role ||
+        me().get('roles', []).hasAny([role])
       );
     }
 
     function hasExtra(permission) {
-      return approved() && me().extraPermissions is list && me().extraPermissions.hasAny([permission]);
+      return approved() && me().get('extraPermissions', []).hasAny([permission]);
     }
 
     function isAdmin() {

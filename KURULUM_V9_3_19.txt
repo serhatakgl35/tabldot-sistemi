@@ -1,0 +1,37 @@
+PBYS V9.3.19 — AŞÇI RAPOR DÜŞÜMÜ
+
+TABAN
+- Doğrudan V9.3.18 üzerine hazırlanmıştır.
+- Aşçı canlı Firestore yenilemesi korunur.
+- Tim/Vardiya ve önceki V9.3.13+ düzeltmeleri korunur.
+
+YENİ KURAL — SADECE AŞÇI YEMEK HAZIRLAMA HESABI
+- Yıllık izinli personel hazırlanacak yemekten düşülür.
+- Raporlu / sağlık istirahatli (status=medical) personel de hazırlanacak yemekten düşülür.
+- Nöbet İstirahati (status=rest) yemek hesabından düşülmez.
+- "Yemeyeceğim" tercihi mevcut eski davranışını korur.
+
+ÖRNEK
+33 aktif personel
+2 yıllık izinli
+1 raporlu
+
+Sabah: 30 yemek
+Akşam: 30 yemek
+Toplam hazırlanacak: 60 öğün
+İzin / rapor düşümü: 6 öğün
+
+EKRAN
+- Yıllık izinli ve raporlu sayıları üst durum şeridinde ayrı ayrı görünür.
+- Öğün kartında "İzin / Rapor" toplamı görünür.
+- İsim Listesi içinde "İzin / Rapor · Yemek dışı" grubunda birlikte listelenir.
+
+ÖNEMLİ
+Bu sürümde aylık mali/tabldot borçlandırma formülü değiştirilmedi.
+Sadece Aşçı'nın hazırlayacağı yemek adedi güncellendi.
+
+YÜKLEME
+- Sadece index.html ve app.js dosyalarını GitHub/Vercel'e yükleyin.
+- firebase.js değişmedi.
+- firestore.rules değişmedi.
+- Firebase Rules'a dokunmanız gerekmez.
