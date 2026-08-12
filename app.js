@@ -35,6 +35,7 @@ let leaveCalendarCursor = startOfMonth(new Date());
 let mealWeekCursor = startOfWeek(new Date());
 let mealManagementWeekCursor = startOfWeek(new Date());
 let cookDateCursor = new Date();
+let menuManagementDateCursor = null;
 let attendanceDateCursor = new Date();
 let attendanceWeekCursor = startOfWeek(new Date());
 let balanceViewPeriod = `${new Date().getFullYear()}-${pad(new Date().getMonth()+1)}`;
@@ -264,7 +265,7 @@ function notice(title, sub) { return `<div class="quick-item"><div><strong>${tit
 
 async function registerNotificationWorker() {
   if (!('serviceWorker' in navigator) || !window.isSecureContext) return null;
-  try { return await navigator.serviceWorker.register('./sw.js?v=9.3.7'); }
+  try { return await navigator.serviceWorker.register('./sw.js?v=9.3.9'); }
   catch (error) { console.warn('Bildirim service worker kaydı yapılamadı:', error); return null; }
 }
 async function requestSiteNotifications() {
@@ -368,12 +369,15 @@ async function bootFirebase() {
   try {
     await firebaseReadyPromise();
     firebaseBooted = true;
-    setCloudStatus('', 'Firestore kontrol ediliyor');
-    await window.FirebaseBridge.ensureSettings();
-    const hasAdmin = await window.FirebaseBridge.hasAnyAdmin();
-    document.getElementById('bootstrapBox').classList.toggle('hidden', hasAdmin);
+
+    // V9.3.8: Güvenli başlangıç sırası.
+    // Oturum açılmadan settings/users gibi korumalı Firestore koleksiyonlarına
+    // sorgu gönderilmez. Böylece giriş ekranında permission-denied uyarısı oluşmaz.
+    setCloudStatus('', 'Oturum kontrol ediliyor');
     const authUser = await window.FirebaseBridge.waitForAuthState();
+
     if (authUser) {
+      setCloudStatus('', 'Firestore kontrol ediliyor');
       const profile = await window.FirebaseBridge.getUserProfile(authUser.uid);
       if (profile?.approved && !profile?.rejected) {
         await enterAuthenticatedApp(profile);
@@ -382,7 +386,11 @@ async function bootFirebase() {
       }
       await window.FirebaseBridge.signOut();
     }
-    setCloudStatus('online', 'Firestore bağlı');
+
+    // Sistem zaten kurulu olduğundan anonim kullanıcıya users/settings sorgusu yaptırma.
+    // İlk admin kutusu yalnızca güvenli kurulum akışında kullanılmalıdır.
+    document.getElementById('bootstrapBox')?.classList.add('hidden');
+    setCloudStatus('online', 'Firebase hazır');
     finishStartup(true);
   } catch (error) {
     console.error(error);
@@ -979,7 +987,7 @@ function renderTodayMenuCard() {
 }
 function renderDailyMenuManagement() {
   if (!hasPermission('menu.manage')) return goPage('dashboard');
-  const selected = db.settings.menuManagementDate || dashboardMenuTarget(new Date()).date;
+  const selected = menuManagementDateCursor || dashboardMenuTarget(new Date()).date;
   const menu = todayMenuRecord(selected);
   const hasMenu = menuTextLines(menu.breakfast).length || menuTextLines(menu.dinner).length;
   document.getElementById('pageContent').innerHTML = `
@@ -994,8 +1002,7 @@ function renderDailyMenuManagement() {
 }
 function setMenuManagementDate(date) {
   if (!date) return;
-  db.settings.menuManagementDate = date;
-  saveDB();
+  menuManagementDateCursor = date;
   renderDailyMenuManagement();
 }
 function dailyMenuModal(date = dashboardMenuTarget(new Date()).date) {
@@ -1008,15 +1015,36 @@ function dailyMenuModal(date = dashboardMenuTarget(new Date()).date) {
     <div class="span-2 form-hint">Kaydedilen menü personelin Ana Sayfasında salt okunur olarak görüntülenir.</div>
     <div class="span-2"><button class="btn btn-primary btn-block">Menüyü Kaydet</button></div>
   </form>`);
-  document.getElementById('dailyMenuForm').addEventListener('submit', e => {
-    e.preventDefault(); const f = new FormData(e.target); const targetDate = String(f.get('date'));
-    db.dailyMenus ||= {};
-    db.dailyMenus[targetDate] = { breakfast: String(f.get('breakfast') || '').trim(), dinner: String(f.get('dinner') || '').trim(), updatedBy: currentUser.id, updatedAt: new Date().toISOString() };
-    db.settings.menuManagementDate = targetDate;
-    logAudit('menu.update', `${targetDate} günlük menüsü güncellendi.`);
-    saveDB(); closeModal();
-    if (currentPage === 'daily-menu-management') renderDailyMenuManagement(); else renderDashboard();
-    toast('Günlük menü kaydedildi.');
+  document.getElementById('dailyMenuForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const button = e.target.querySelector('button[type="submit"], button');
+    if (button) button.disabled = true;
+    const f = new FormData(e.target);
+    const targetDate = String(f.get('date'));
+    const menuRecord = {
+      breakfast: String(f.get('breakfast') || '').trim(),
+      dinner: String(f.get('dinner') || '').trim(),
+      updatedBy: currentUser.id,
+      updatedAt: new Date().toISOString()
+    };
+    try {
+      setCloudStatus('', 'Menü kaydediliyor');
+      await window.FirebaseBridge.saveDailyMenu(targetDate, menuRecord);
+      db.dailyMenus ||= {};
+      db.dailyMenus[targetDate] = menuRecord;
+      menuManagementDateCursor = targetDate;
+      localStorage.setItem(APP_KEY, JSON.stringify(db));
+      closeModal();
+      if (currentPage === 'daily-menu-management') renderDailyMenuManagement(); else renderDashboard();
+      setCloudStatus('online', 'Firestore bağlı');
+      toast('Günlük menü kaydedildi.');
+    } catch (error) {
+      console.error('Günlük menü kayıt hatası:', error);
+      setCloudStatus('offline', 'Senkron hatası');
+      toast(window.FirebaseBridge.errorMessage(error));
+    } finally {
+      if (button) button.disabled = false;
+    }
   });
 }
 function activitiesForRange(start, end) {
