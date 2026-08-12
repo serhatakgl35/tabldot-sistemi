@@ -1523,6 +1523,31 @@ function teamRotationStatus(team, date) {
   if (!pattern) return null;
   return pattern[teamRotationPhase(date)];
 }
+function watchTeamForDate(date) {
+  return ['1','2','3'].find(team => teamRotationStatus(team, date) === 'watch') || '1';
+}
+function dateMinusDays(date, days) {
+  return toISO(addDays(parseISO(date), -Number(days || 0)));
+}
+async function setTodayWatchTeam(team) {
+  if (!isAdmin()) return toast('Bugünkü nöbetçi timi yalnız Admin değiştirebilir.');
+  const selected = String(team || '');
+  if (!['1','2','3'].includes(selected)) return;
+
+  // Faz 0 -> 1. Tim nöbetçi, Faz 1 -> 2. Tim nöbetçi, Faz 2 -> 3. Tim nöbetçi.
+  const today = toISO(new Date());
+  const phase = Number(selected) - 1;
+  db.settings.workRotationStartDate = dateMinusDays(today, phase);
+
+  try {
+    await saveDB();
+    renderTeamShiftManagement();
+    toast(`Bugün ${selected}. Tim nöbetçi olarak ayarlandı.`);
+  } catch (error) {
+    console.error(error);
+    toast(window.FirebaseBridge?.errorMessage(error) || 'Nöbetçi tim ayarı kaydedilemedi.');
+  }
+}
 function teamRotationForUser(user, date) {
   if (!user?.workTeam) return null;
   const status = teamRotationStatus(user.workTeam, date);
@@ -1605,6 +1630,7 @@ function renderTeamShiftManagement() {
   const date = toISO(new Date());
   const editable = isAdmin();
   const start = String(db.settings.workRotationStartDate || '2026-08-12');
+  const todayWatchTeam = watchTeamForDate(date);
 
   const teamSummary = ['1','2','3'].map(team => {
     const status = teamRotationStatus(team, date);
@@ -1649,16 +1675,26 @@ function renderTeamShiftManagement() {
     <div class="card">
       <div class="card-header calendar-toolbar">
         <div><h3>🛡️ Tim / Vardiya Yönetimi</h3><p>3 tim için Nöbet → Nöbet İstirahati → Mesai döngüsü otomatik hesaplanır.</p></div>
-        <div class="calendar-actions">
-          <label style="display:grid;gap:4px;font-size:11px;font-weight:700">Döngü başlangıç tarihi
-            <input type="date" value="${escapeHtml(start)}" ${editable ? `onchange="saveTeamRotationStartDate(this.value)"` : 'disabled'}>
+        <div class="calendar-actions" style="align-items:end">
+          <label style="display:grid;gap:4px;font-size:11px;font-weight:700;min-width:180px">Bugün nöbetçi tim
+            <select ${editable ? `onchange="setTodayWatchTeam(this.value)"` : 'disabled'} style="min-height:44px">
+              <option value="1" ${todayWatchTeam==='1' ? 'selected' : ''}>1. Tim</option>
+              <option value="2" ${todayWatchTeam==='2' ? 'selected' : ''}>2. Tim</option>
+              <option value="3" ${todayWatchTeam==='3' ? 'selected' : ''}>3. Tim</option>
+            </select>
           </label>
+          <details style="font-size:11px;color:var(--muted)">
+            <summary style="cursor:pointer;font-weight:700">Gelişmiş</summary>
+            <label style="display:grid;gap:4px;margin-top:8px">Döngü başlangıç tarihi
+              <input type="date" value="${escapeHtml(start)}" ${editable ? `onchange="saveTeamRotationStartDate(this.value)"` : 'disabled'}>
+            </label>
+          </details>
         </div>
       </div>
       <div class="card-body">
         <div class="management-banner" style="margin-bottom:14px">
           <strong>Çalışma sırası</strong>
-          <span>1. Tim: Nöbet → Nöbet İstirahati → Mesai · 2. Tim: Mesai → Nöbet → Nöbet İstirahati · 3. Tim: Nöbet İstirahati → Mesai → Nöbet</span>
+          <span>Bugün nöbetçi timi seçmeniz yeterlidir. Sistem sonraki günleri otomatik döndürür. 1. Tim: Nöbet → Nöbet İstirahati → Mesai · 2. Tim: Mesai → Nöbet → Nöbet İstirahati · 3. Tim: Nöbet İstirahati → Mesai → Nöbet</span>
         </div>
         <div class="grid grid-3">${teamSummary}</div>
         ${!editable ? '<div class="form-note section-gap">Bu ekran salt okunurdur. Tim atamalarını Admin değiştirir.</div>' : ''}
