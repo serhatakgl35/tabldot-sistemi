@@ -264,7 +264,7 @@ function notice(title, sub) { return `<div class="quick-item"><div><strong>${tit
 
 async function registerNotificationWorker() {
   if (!('serviceWorker' in navigator) || !window.isSecureContext) return null;
-  try { return await navigator.serviceWorker.register('./sw.js?v=9.3.8'); }
+  try { return await navigator.serviceWorker.register('./sw.js?v=9.4.0'); }
   catch (error) { console.warn('Bildirim service worker kaydı yapılamadı:', error); return null; }
 }
 async function requestSiteNotifications() {
@@ -2076,7 +2076,7 @@ function renderLeaveManagement() {
   const monthly = db.leaveRequests.filter(x => x.start <= monthEnd && x.end >= monthStart).sort((a, b) => a.start.localeCompare(b.start));
   document.getElementById('pageContent').innerHTML = `
     <div class="grid grid-4">${metric('📅', 'Toplam izin kaydı', db.leaveRequests.length, 'Tüm dönemler')}${metric('⏳', 'Onay bekleyen', db.leaveRequests.filter(x => x.status === 'pending').length, 'Değerlendirme gerekli')}${metric('✅', 'Onaylanan', db.leaveRequests.filter(x => x.status === 'approved').length, 'Planlanan izinler')}${metric('👥', monthTitle(year, month) + ' izinli', new Set(monthly.map(x => x.userId)).size + ' kişi', 'Ay içinde izin kaydı bulunan')}</div>
-    <div class="card section-gap leave-calendar-card"><div class="card-header calendar-toolbar"><div><h3>${monthTitle(year, month)} izin takvimi</h3><p>Önceki ve gelecek aylara sınırsız geçiş yapılabilir</p></div><div class="calendar-actions"><button class="btn btn-secondary btn-sm" onclick="changeLeaveMonth(-1)">‹ Önceki Ay</button><button class="btn btn-secondary btn-sm" onclick="goCurrentLeaveMonth()">Bu Ay</button><button class="btn btn-primary btn-sm" onclick="changeLeaveMonth(1)">Sonraki Ay ›</button></div></div><div class="card-body">${calendarHtml(year, month)}</div></div>
+    <div class="card section-gap leave-calendar-card"><div class="card-header calendar-toolbar"><div><h3>${monthTitle(year, month)} izin takvimi</h3><p>Önceki ve gelecek aylara sınırsız geçiş yapılabilir</p></div><div class="leave-calendar-header-actions"><div class="leave-calendar-tools"><button class="btn btn-secondary btn-sm" onclick="openLeaveCalendarTab(false)">↗ Yeni Sekmede Aç</button><button class="btn btn-secondary btn-sm" onclick="openLeaveCalendarTab(true)">🖨 Yazdır</button></div><div class="calendar-actions"><button class="btn btn-secondary btn-sm" onclick="changeLeaveMonth(-1)">‹ Önceki Ay</button><button class="btn btn-secondary btn-sm" onclick="goCurrentLeaveMonth()">Bu Ay</button><button class="btn btn-primary btn-sm" onclick="changeLeaveMonth(1)">Sonraki Ay ›</button></div></div></div><div class="card-body">${calendarHtml(year, month)}</div></div>
     <div class="card section-gap"><div class="card-header"><div><h3>${monthTitle(year, month)} izinli personel listesi</h3><p>Gösterilen ayla kesişen bütün izinler</p></div>${hasPermission('leave.manage') ? '<button class="btn btn-secondary btn-sm" onclick="leaveModal(true)">Geçmiş İzin / Kayıt Ekle</button>' : ''}</div>${monthly.length ? leaveTable(monthly, true) : '<div class="empty">Bu ay için izin kaydı bulunmuyor.</div>'}</div>
     <div class="card section-gap"><div class="card-header"><div><h3>Tüm izin talepleri</h3><p>Personel adına tıklayarak bütün izin geçmişini açabilirsiniz</p></div></div>${leaveTable(db.leaveRequests, true)}</div>`;
 }
@@ -2125,6 +2125,103 @@ function calendarHtml(year, month) {
   }
   return `<div class="calendar">${heads}${days}</div>`;
 }
+
+function openLeaveCalendarTab(autoPrint = false) {
+  if (!hasPermission('leave.view')) return toast('İzin takvimini görüntüleme yetkiniz bulunmuyor.');
+  const initialYear = leaveCalendarCursor.getFullYear();
+  const initialMonth = leaveCalendarCursor.getMonth();
+  const records = (db.leaveRequests || []).map(x => ({
+    id: Number(x.id || 0),
+    userId: Number(x.userId),
+    name: String(getUser(x.userId)?.name || '-'),
+    type: String(x.type || 'İzin'),
+    status: String(x.status || 'neutral'),
+    start: normalizeRecordDate(x.start),
+    end: normalizeRecordDate(x.end)
+  }));
+  const payload = JSON.stringify(records).replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
+  const tab = window.open('', '_blank');
+  if (!tab) return toast('Yeni sekme tarayıcı tarafından engellendi. Açılır pencere izni verip tekrar deneyin.');
+
+  const printFlag = autoPrint ? 'true' : 'false';
+  tab.document.open();
+  tab.document.write(`<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PBYS · İzin Takvimi</title>
+<style>
+  :root{--ink:#172033;--muted:#667085;--line:#dfe5ec;--soft:#f7f9fc;--teal:#0f9488;--teal2:#0b7e75}
+  *{box-sizing:border-box}
+  body{margin:0;background:#eef2f6;color:var(--ink);font-family:Inter,Arial,sans-serif}
+  .shell{max-width:1480px;margin:0 auto;padding:24px}
+  .toolbar{position:sticky;top:0;z-index:5;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 18px;margin-bottom:16px;background:rgba(255,255,255,.96);backdrop-filter:blur(10px);border:1px solid var(--line);border-radius:18px;box-shadow:0 8px 30px rgba(15,23,42,.08)}
+  .toolbar h1{font-size:24px;margin:0 0 4px;font-weight:800}.toolbar p{margin:0;color:var(--muted);font-size:13px}
+  .actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+  button{border:1px solid var(--line);background:#fff;color:#344054;padding:10px 14px;border-radius:11px;font-weight:800;cursor:pointer;font-size:13px}
+  button.primary{background:linear-gradient(135deg,#13a99b,var(--teal2));border-color:transparent;color:#fff}
+  .calendar-card{background:#fff;border:1px solid var(--line);border-radius:20px;box-shadow:0 12px 34px rgba(15,23,42,.08);overflow:hidden}
+  .calendar{display:grid;grid-template-columns:repeat(7,minmax(145px,1fr));min-width:1050px;border-top:1px solid var(--line);border-left:1px solid var(--line)}
+  .calendar-wrap{overflow:auto;padding:18px}
+  .head{padding:12px 8px;text-align:center;background:var(--soft);font-size:12px;font-weight:800;color:var(--muted);border-right:1px solid var(--line)}
+  .day{min-height:145px;padding:9px;border-right:1px solid var(--line);border-bottom:1px solid var(--line);background:#fff;overflow:hidden}
+  .day.muted{background:#fafbfc;color:#98a2b3}.num{font-size:14px;font-weight:900;margin-bottom:6px}
+  .event{display:block;width:100%;padding:6px 7px;margin-top:5px;border-radius:7px;font-size:10px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .event.approved{background:#dcfce7;color:#166534}.event.pending{background:#fef3c7;color:#92400e}.event.rejected{background:#fee2e2;color:#991b1b}.event.report{background:#fee2e2;color:#991b1b}.event.neutral{background:#eef2f6;color:#475467}
+  .more{margin-top:5px;font-size:10px;font-weight:900;color:var(--teal)}
+  .legend{display:flex;gap:12px;flex-wrap:wrap;padding:0 18px 18px;color:var(--muted);font-size:11px}.legend span{display:flex;align-items:center;gap:6px}.dot{width:9px;height:9px;border-radius:50%;display:inline-block}.ok{background:#86efac}.wait{background:#fcd34d}.bad{background:#fca5a5}
+  .list{margin-top:16px;background:#fff;border:1px solid var(--line);border-radius:18px;overflow:hidden}.list h2{font-size:16px;margin:0;padding:16px 18px;border-bottom:1px solid var(--line)}
+  table{width:100%;border-collapse:collapse;font-size:12px}th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line)}th{background:var(--soft);color:var(--muted);font-size:11px}tr:last-child td{border-bottom:0}
+  .status{font-weight:800}.empty{padding:18px;color:var(--muted)}
+  @media(max-width:760px){.shell{padding:10px}.toolbar{position:static;align-items:flex-start;flex-direction:column;padding:14px}.toolbar h1{font-size:20px}.actions{width:100%;display:grid;grid-template-columns:repeat(3,1fr)}.actions button{padding:9px 6px;font-size:11px}.actions .print{grid-column:1/-1}.calendar-wrap{padding:10px}.calendar{grid-template-columns:repeat(7,145px)}.list{overflow:auto}}
+  @media print{
+    @page{size:A4 landscape;margin:9mm}
+    body{background:#fff}.shell{max-width:none;padding:0}.toolbar{position:static;box-shadow:none;border:0;padding:0 0 7mm;margin:0}.actions{display:none}.toolbar h1{font-size:19px}.toolbar p{font-size:10px}
+    .calendar-card{box-shadow:none;border:1px solid #cfd6df;border-radius:0}.calendar-wrap{overflow:visible;padding:0}.calendar{min-width:0;grid-template-columns:repeat(7,1fr)}.head{padding:5px 2px;font-size:8px}.day{min-height:27mm;padding:3px}.num{font-size:9px;margin-bottom:2px}.event{font-size:6.5px;padding:2px 3px;margin-top:2px}.more{font-size:6.5px;margin-top:2px}.legend{padding:3mm 0 0;font-size:7px}
+    .list{box-shadow:none;border-radius:0;margin-top:5mm;break-before:auto}.list h2{font-size:11px;padding:5px 7px}table{font-size:7px}th,td{padding:4px 5px}th{font-size:6.5px}
+  }
+</style>
+</head>
+<body>
+<div class="shell">
+  <div class="toolbar"><div><h1 id="title"></h1><p>PBYS · İzin Yönetimi · Büyük takvim görünümü</p></div><div class="actions"><button onclick="move(-1)">‹ Önceki Ay</button><button onclick="today()">Bu Ay</button><button class="primary" onclick="move(1)">Sonraki Ay ›</button><button class="print" onclick="window.print()">🖨 Yazdır / PDF</button></div></div>
+  <div class="calendar-card"><div class="calendar-wrap"><div id="calendar" class="calendar"></div></div><div class="legend"><span><i class="dot ok"></i>Onaylandı</span><span><i class="dot wait"></i>Onay bekliyor</span><span><i class="dot bad"></i>Reddedildi / rapor</span></div></div>
+  <div class="list"><h2 id="listTitle">Ay içindeki izin kayıtları</h2><div id="listBody"></div></div>
+</div>
+<script>
+const records=${payload};
+let cursor=new Date(${initialYear},${initialMonth},1);
+const heads=['Pzt','Sal','Çar','Per','Cum','Cmt','Paz'];
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const pad=n=>String(n).padStart(2,'0');
+const iso=d=>d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());
+const add=(d,n)=>{const x=new Date(d);x.setDate(x.getDate()+n);return x};
+const monthName=(y,m)=>new Intl.DateTimeFormat('tr-TR',{month:'long',year:'numeric'}).format(new Date(y,m,1));
+const pretty=s=>{const [y,m,d]=String(s).split('-');return d+'.'+m+'.'+y};
+const statusText=s=>s==='approved'?'Onaylandı':s==='pending'?'Onay Bekliyor':s==='rejected'?'Reddedildi':s==='report'?'Rapor':'—';
+function monthRecords(y,m){const start=y+'-'+pad(m+1)+'-01';const end=y+'-'+pad(m+1)+'-'+pad(new Date(y,m+1,0).getDate());return records.filter(r=>r.start<=end&&r.end>=start).sort((a,b)=>a.start.localeCompare(b.start)||a.name.localeCompare(b.name,'tr'))}
+function render(){
+  const y=cursor.getFullYear(),m=cursor.getMonth();document.getElementById('title').textContent=monthName(y,m)+' İzin Takvimi';document.title=monthName(y,m)+' İzin Takvimi · PBYS';
+  const first=new Date(y,m,1),last=new Date(y,m+1,0),mi=(first.getDay()+6)%7,total=Math.ceil((mi+last.getDate())/7)*7,start=add(first,-mi);
+  let html=heads.map(h=>'<div class="head">'+h+'</div>').join('');
+  for(let i=0;i<total;i++){
+    const d=add(start,i),ds=iso(d),inMonth=d.getMonth()===m&&d.getFullYear()===y;
+    const ev=records.filter(r=>r.start<=ds&&r.end>=ds).sort((a,b)=>a.name.localeCompare(b.name,'tr'));const vis=ev.slice(0,4),more=Math.max(0,ev.length-vis.length);
+    html+='<div class="day'+(inMonth?'':' muted')+'"><div class="num">'+d.getDate()+'</div>'+vis.map(e=>'<div class="event '+esc(e.status||'neutral')+'" title="'+esc(e.name+' · '+e.type)+'">'+esc(e.name)+'</div>').join('')+(more?'<div class="more">+'+more+' kişi daha</div>':'')+'</div>';
+  }
+  document.getElementById('calendar').innerHTML=html;
+  const list=monthRecords(y,m);document.getElementById('listTitle').textContent=monthName(y,m)+' · İzin kayıtları ('+list.length+')';
+  document.getElementById('listBody').innerHTML=list.length?'<table><thead><tr><th>Personel</th><th>İzin türü</th><th>Başlangıç</th><th>Bitiş</th><th>Durum</th></tr></thead><tbody>'+list.map(r=>'<tr><td><strong>'+esc(r.name)+'</strong></td><td>'+esc(r.type)+'</td><td>'+pretty(r.start)+'</td><td>'+pretty(r.end)+'</td><td class="status">'+statusText(r.status)+'</td></tr>').join('')+'</tbody></table>':'<div class="empty">Bu ay için izin kaydı bulunmuyor.</div>';
+}
+function move(n){cursor=new Date(cursor.getFullYear(),cursor.getMonth()+n,1);render()}function today(){const d=new Date();cursor=new Date(d.getFullYear(),d.getMonth(),1);render()}
+render();if(${printFlag})setTimeout(()=>window.print(),350);
+<\/script>
+</body></html>`);
+  tab.document.close();
+  tab.focus();
+}
+
 function openCalendarDayLeaves(date) {
   if (!hasPermission('leave.view')) return;
   const events = (db.leaveRequests || [])
@@ -2153,42 +2250,126 @@ function openPersonnelLeaves(userId) {
 }
 function leaveModal(asManager = false, editId = null) {
   if (!asManager && isCommander()) return toast('Karakol Komutanı için yeni izin talebi bu sistemden oluşturulmaz.');
-  const users = approvedUsers();
+
+  // Yönetici izin kaydındaki personel listesi Türkçe alfabetik A-Z sıralanır.
+  const users = approvedUsers().slice().sort((a, b) =>
+    String(a.name || '').localeCompare(String(b.name || ''), 'tr-TR', { sensitivity: 'base' })
+  );
   const editing = editId ? db.leaveRequests.find(x => x.id === Number(editId)) : null;
   if (editing && (asManager || !canEditOwnLeave(editing))) return toast('Bu izin talebi artık personel tarafından düzenlenemez.');
+
   const selectedType = editing?.type || 'Yıllık İzin';
-  const types = ['Yıllık İzin','Günübirlik İzin','Mazeret İzni','Sağlık İzni','Görev / Kurs'];
+  const types = ['Yıllık İzin','Günübirlik İzin','Mazeret İzni','Sağlık İzni','Sağlık Raporu','Görev / Kurs'];
   if (selectedType === 'Yol İzni') types.push('Yol İzni'); // yalnızca eski kaydı düzenlerken görünür
+
+  const initialDays = editing
+    ? Math.max(1, Number(editing.days || daysBetween(editing.start, editing.end)))
+    : '';
   const title = editing ? 'İzin Talebini Düzenle' : (asManager ? 'Geçmiş / Yönetici İzin Kaydı Ekle' : 'Yeni İzin Talebi');
+
   showModal(title, `<form id="leaveForm" class="form-grid">
-    ${asManager ? `<label class="span-2">Personel<select name="userId">${users.map(u => `<option value="${u.id}">${escapeHtml(u.name)}</option>`).join('')}</select></label>` : ''}
-    <label>İzin türü<select name="type">${types.map(type => `<option${type === selectedType ? ' selected' : ''}>${type}</option>`).join('')}</select></label>
+    ${asManager ? `<label class="span-2">Personel<select name="userId">${users.map(u => `<option value="${u.id}"${editing?.userId === u.id ? ' selected' : ''}>${escapeHtml(u.name)}</option>`).join('')}</select></label>` : ''}
+    <label>İzin türü<select name="type" id="leaveTypeSelect">${types.map(type => `<option${type === selectedType ? ' selected' : ''}>${type}</option>`).join('')}</select></label>
     <label>İzne gidilecek şehir<input name="city" value="${escapeHtml(editing?.city || '')}" ${asManager ? '' : 'required'}></label>
-    <label>Başlangıç tarihi<input name="start" type="date" value="${editing?.start || ''}" required></label>
-    <label>Bitiş tarihi<input name="end" type="date" value="${editing?.end || ''}" required></label>
+
+    <div class="span-2 leave-date-grid">
+      <label>Başlangıç tarihi<input name="start" id="leaveStartInput" type="date" value="${editing?.start || ''}" required></label>
+      <label>İzin gün sayısı<input name="days" id="leaveDaysInput" type="number" min="1" step="1" inputmode="numeric" value="${initialDays}" placeholder="Örn. 10" required></label>
+      <label>Bitiş tarihi<input name="end" id="leaveEndInput" type="date" value="${editing?.end || ''}" required></label>
+    </div>
+    <div class="span-2 leave-date-help">Başlangıç tarihi ile gün sayısını yazdığınızda bitiş tarihi otomatik hesaplanır. Bitiş tarihini elle değiştirirseniz gün sayısı da otomatik güncellenir.</div>
+
     <label class="span-2">Açıklama<textarea name="note">${escapeHtml(editing?.note || '')}</textarea></label>
     <div class="span-2 form-hint"><strong>Yıllık izin kuralı:</strong> Personelin 30 gün yıllık + 2 gün yol olmak üzere toplam 32 günlük hakkı vardır. Yıllık izin kaydında kalan yol izni önce otomatik kullanılır; ayrıca “Yol İzni” kaydı açılmaz.</div>
     ${asManager ? '<div class="span-2 form-hint">Admin/İdari İşler geçmiş aylarda kullanılmış izinleri buradan ekleyebilir. Kayıt onaylı olarak işlenir ve bakiyeyi otomatik etkiler.</div>' : ''}
     <div class="span-2"><button class="btn btn-primary btn-block">${editing ? 'Değişiklikleri Kaydet' : (asManager ? 'İzin Kaydını Ekle' : 'Talebi Gönder')}</button></div>
   </form>`);
-  document.getElementById('leaveForm').addEventListener('submit', e => {
-    e.preventDefault(); const f = new FormData(e.target), start = f.get('start'), end = f.get('end'), type = f.get('type');
-    if (end < start) return toast('Bitiş tarihi başlangıçtan önce olamaz.');
-    if (type === 'Günübirlik İzin' && start !== end) return toast('Günübirlik izin için başlangıç ve bitiş aynı gün olmalıdır.');
-    const payload = { type, city: f.get('city') || '-', start, end, days: daysBetween(start, end), note: f.get('note') };
+
+  const form = document.getElementById('leaveForm');
+  const startInput = document.getElementById('leaveStartInput');
+  const daysInput = document.getElementById('leaveDaysInput');
+  const endInput = document.getElementById('leaveEndInput');
+  const typeInput = document.getElementById('leaveTypeSelect');
+
+  const normalizeDayCount = () => {
+    const value = Math.floor(Number(daysInput.value));
+    return Number.isFinite(value) && value > 0 ? value : 0;
+  };
+  const syncEndFromDays = () => {
+    const days = normalizeDayCount();
+    if (!startInput.value || !days) return;
+    endInput.value = toISO(addDays(parseISO(startInput.value), days - 1));
+  };
+  const syncDaysFromDates = () => {
+    if (!startInput.value || !endInput.value || endInput.value < startInput.value) return;
+    daysInput.value = daysBetween(startInput.value, endInput.value);
+  };
+  const enforceDailyLeave = () => {
+    if (typeInput.value !== 'Günübirlik İzin') return;
+    daysInput.value = 1;
+    if (startInput.value) endInput.value = startInput.value;
+  };
+
+  startInput.addEventListener('change', () => {
+    enforceDailyLeave();
+    if (typeInput.value !== 'Günübirlik İzin') syncEndFromDays();
+  });
+  daysInput.addEventListener('input', () => {
+    if (typeInput.value === 'Günübirlik İzin') {
+      enforceDailyLeave();
+      return;
+    }
+    syncEndFromDays();
+  });
+  daysInput.addEventListener('change', () => {
+    const days = normalizeDayCount();
+    if (days) daysInput.value = days;
+    syncEndFromDays();
+  });
+  endInput.addEventListener('change', () => {
+    if (endInput.value && startInput.value && endInput.value < startInput.value) {
+      endInput.value = '';
+      return toast('Bitiş tarihi başlangıçtan önce olamaz.');
+    }
+    syncDaysFromDates();
+    enforceDailyLeave();
+  });
+  typeInput.addEventListener('change', () => {
+    if (typeInput.value === 'Günübirlik İzin') enforceDailyLeave();
+  });
+
+  form.addEventListener('submit', e => {
+    e.preventDefault();
+    const f = new FormData(e.target);
+    const start = String(f.get('start') || '');
+    let end = String(f.get('end') || '');
+    const type = String(f.get('type') || '');
+    const enteredDays = Math.floor(Number(f.get('days')));
+
+    if (!start) return toast('Başlangıç tarihini seçin.');
+    if (!Number.isFinite(enteredDays) || enteredDays < 1) return toast('İzin gün sayısı en az 1 olmalıdır.');
+
+    // Gün sayısı alanı esas alınarak bitiş tarihi son kez güvenli biçimde hesaplanır.
+    end = toISO(addDays(parseISO(start), enteredDays - 1));
+    if (type === 'Günübirlik İzin' && enteredDays !== 1) return toast('Günübirlik izin yalnızca 1 gün olabilir.');
+
+    const payload = { type, city: f.get('city') || '-', start, end, days: enteredDays, note: f.get('note') };
     const targetUser = getUser(asManager ? Number(f.get('userId')) : (editing?.userId ?? currentUser.id));
     if (type === 'Yıllık İzin' && !canFitAnnualLeaveEntitlement(targetUser, payload.days)) {
       return toast(`${targetUser?.name || 'Personel'} için toplam yıllık izin hakkı (${getTotalLeaveEntitlement(targetUser)} gün) aşılamaz.`);
     }
     if (editing) {
       Object.assign(editing, payload, { status: 'pending', updatedAt: new Date().toISOString() });
-      logAudit('leave_request_updated', `${currentUser.name} izin talebini güncelledi: ${start} - ${end}`);
+      logAudit('leave_request_updated', `${currentUser.name} izin talebini güncelledi: ${start} - ${end} (${enteredDays} gün)`);
     } else {
       const record = { id: Date.now(), userId: asManager ? Number(f.get('userId')) : currentUser.id, ...payload, status: asManager ? 'approved' : 'pending', source: asManager ? 'historical-or-authorized' : 'request', createdAt: new Date().toISOString() };
       db.leaveRequests.push(record);
-      logAudit(asManager ? 'leave_historical_created' : 'leave_request_created', `${getUser(record.userId)?.name || currentUser.name}: ${type} ${start} - ${end}`);
+      logAudit(asManager ? 'leave_historical_created' : 'leave_request_created', `${getUser(record.userId)?.name || currentUser.name}: ${type} ${start} - ${end} (${enteredDays} gün)`);
     }
-    saveDB(); closeModal(); asManager ? renderLeaveManagement() : renderMyLeaves(); toast(editing ? 'İzin talebiniz güncellendi.' : (asManager ? 'İzin kaydı eklendi ve bakiye güncellendi.' : 'İzin talebiniz onaya gönderildi.'));
+    saveDB();
+    closeModal();
+    asManager ? renderLeaveManagement() : renderMyLeaves();
+    toast(editing ? 'İzin talebiniz güncellendi.' : (asManager ? 'İzin kaydı eklendi ve bakiye güncellendi.' : 'İzin talebiniz onaya gönderildi.'));
   });
 }
 function deleteLeaveRequest(id, asManager = false) {

@@ -94,7 +94,9 @@ service cloud.firestore {
     }
 
     function menuManager() {
-      return isAdmin() || hasExtra('menu.manage');
+      // Aşçı rolü için yemek menüsü yönetimi doğrudan rol yetkisidir;
+      // ayrıca özel yetki eklenmesi gerekmez.
+      return isAdmin() || hasRole('cook') || hasExtra('menu.manage');
     }
 
     function operationalUserViewer() {
@@ -137,7 +139,10 @@ service cloud.firestore {
 
       allow update: if isAdmin()
         || (signedIn() && request.auth.uid == uid &&
-            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'title']))
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'name', 'title',
+              'mustChangePassword', 'passwordChangedAt', 'passwordResetAt', 'passwordResetBy', 'passwordResetByUid'
+            ]))
         || (leaveManager() &&
             request.resource.data.diff(resource.data).affectedKeys().hasOnly([
               'name', 'title', 'annualAllowance', 'roadAllowance', 'usedLeave', 'usedRoadLeave'
@@ -187,10 +192,13 @@ service cloud.firestore {
     }
 
     match /leaveRequests/{docId} {
-      allow read: if approved() && (
-        isOwnNumericUserId(resource.data) ||
+      // Aşçı ekranı seçili günün yıllık izin / rapor gibi personel durumlarını okuyabilsin.
+      // Arayüzde aşçıya yalnızca operasyonel durum gösterilir; kayıt düzenleme yetkisi verilmez.
+      allow get, list: if approved() && (
+        kitchenViewer() ||
         leaveViewer() ||
-        ((kitchenViewer() || financeManager()) && resource.data.status == 'approved' && resource.data.type == 'Yıllık İzin')
+        isOwnNumericUserId(resource.data) ||
+        (financeManager() && resource.data.status == 'approved' && resource.data.type == 'Yıllık İzin')
       );
 
       allow create: if approved() && (
@@ -239,7 +247,8 @@ service cloud.firestore {
     }
 
     match /attendance/{docId} {
-      allow read: if approved() && (isOwnNumericUserId(resource.data) || attendanceViewer());
+      // Aşçı sadece ekranında günlük personel durumunu okuyabilir; yoklama kaydı değiştiremez.
+      allow get, list: if approved() && (kitchenViewer() || attendanceViewer() || isOwnNumericUserId(resource.data));
       allow write: if attendanceManager();
     }
 

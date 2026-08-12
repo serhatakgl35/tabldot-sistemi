@@ -1419,3 +1419,39 @@ input:hover,select:hover,textarea:hover{border-color:#cfd8e3}input:focus,select:
   .leave-calendar-card .day-num{font-size:10px}
   .leave-calendar-card .calendar-event{font-size:7px;padding:3px 1px}
 }
+
+
+/* PBYS V9.3.9 — İzin yönetimi: A-Z personel, gün sayısı ve otomatik bitiş tarihi */
+.leave-date-grid{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) minmax(120px,.55fr) minmax(0,1fr);
+  gap:14px;
+  align-items:end;
+}
+.leave-date-grid label{min-width:0}
+.leave-date-grid input{width:100%}
+.leave-date-help{
+  margin-top:-4px;
+  padding:9px 11px;
+  border:1px solid #dbe7ea;
+  border-radius:10px;
+  background:#f7fbfb;
+  color:var(--muted,#64748b);
+  font-size:11px;
+  line-height:1.45;
+}
+@media(max-width:620px){
+  .leave-date-grid{grid-template-columns:1fr;gap:10px}
+  .leave-date-help{margin-top:-2px}
+}
+
+
+/* PBYS V9.4.0 — İzin takvimi: büyük sekme ve yazdırma araçları */
+.leave-calendar-header-actions{display:flex;flex-direction:column;align-items:flex-end;gap:8px;min-width:min(100%,420px)}
+.leave-calendar-tools{display:flex;gap:7px;justify-content:flex-end;flex-wrap:wrap}
+.leave-calendar-tools .btn{white-space:nowrap}
+@media(max-width:760px){
+  .leave-calendar-header-actions{width:100%;min-width:0;align-items:stretch;gap:7px}
+  .leave-calendar-tools{display:grid;grid-template-columns:1fr 1fr;width:100%;gap:6px}
+  .leave-calendar-tools .btn{width:100%;min-width:0;padding:9px 6px;font-size:10px}
+}

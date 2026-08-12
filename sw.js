@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'pbys-v9.3.8';
+const CACHE_VERSION = 'pbys-v9.4.0';
 self.addEventListener('install', event => self.skipWaiting());
 self.addEventListener('activate', event => event.waitUntil(self.clients.claim()));
 self.addEventListener('notificationclick', event => {

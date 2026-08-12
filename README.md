@@ -1,69 +1,116 @@
-# PBYS V9.3.0 — Toplu Güncelleme
+# PBYS V9.4.0 — Büyük İzin Takvimi ve Yazdırma
 
-Bu paket V9.2.6 tabanı üzerine hazırlanmıştır. Önceki yıllık izin tercih yönetimi ve Karakol Komutanı yetkileri korunmuştur.
+## V9.4.0 yenilikleri
+- İzin Yönetimi içindeki mevcut mobil ay takvimi aynen korunur.
+- Takvim kartına **Yeni Sekmede Aç** düğmesi eklendi.
+- Yeni sekmede takvim geniş, masaüstü odaklı büyük görünümde açılır.
+- Büyük görünümde Önceki Ay / Bu Ay / Sonraki Ay gezinmesi bulunur.
+- Hem ana ekranda hem büyük görünümde **Yazdır / PDF** özelliği vardır.
+- Yazdırma düzeni A4 yatay sayfaya optimize edilmiştir.
+- Baskıda ay içindeki izin kayıtları isim, izin türü ve tarih aralığıyla ayrıca listelenir.
 
-## Bu pakette yapılanlar
+## V9.3.9 — İzin kayıt ekranı
 
-### Yoklama Özeti
-- Haftalık görünümde M, MS, N, Nİ, R vb. durum rozetleri `attendance.manage` yetkisi olan kullanıcılar için tıklanabilir hale getirildi.
-- Rozete tıklanınca doğrudan ilgili personelin ilgili güne ait yoklama düzenleme ekranı açılır.
-- Haftalık tablonun gün/tarih başlıkları aşağı kaydırırken üstte sabit kalır; personel sütunu solda sabit kalır.
-- “Diğer durumda” ana kartı kaldırıldı.
-- Toplam / Mevcut / İzinli ana kartlarının altına Nöbetçi, Mesai, Nöbet İstirahati, Raporlu/İstirahatli, Görevli, Geçici Görevli, Kurs/Eğitim, Sevkli vb. küçük durum kartları eklendi.
-- Küçük durum kartlarında kişi sayısı ve toplam aktif personele göre yüzde oranı gösterilir.
-- Mevcudiyet hesabı `Mevcut + Mesai + Nöbetçi + Nöbet İstirahati` toplamı üzerinden gösterilir.
-- Bugünkü detay ve konum dağılımında personel adları virgülle yan yana değil, alt alta gösterilir.
+- Geçmiş / Yönetici İzin Kaydı ekranındaki **Personel** açılır listesi Türkçe alfabetik **A-Z** sıralanır.
+- İzin türlerine **Sağlık Raporu** eklendi. Mevcut **Sağlık İzni** kaydı geriye dönük uyumluluk için korunur.
+- **İzin gün sayısı** alanı eklendi.
+- Başlangıç tarihi + gün sayısı girildiğinde **Bitiş tarihi otomatik hesaplanır**. Gün hesabı başlangıç günü dahil yapılır: 10 gün = başlangıç + 9 gün.
+- Bitiş tarihi elle değiştirilirse gün sayısı otomatik yeniden hesaplanır.
+- **Günübirlik İzin** seçildiğinde gün sayısı otomatik 1 olur ve bitiş tarihi başlangıç tarihiyle eşitlenir.
+- V9.3.8 mobil takvim ve Aşçı yıllık izin düzeltmeleri korunmuştur.
 
-### Çamaşır Sayacı
-- Randevu sistemi kullanılmaz; sayaç yapısı korunur.
-- Sayacı başlatan personelin adı kullanım kaydına ayrıca yazılır.
-- Personelin kendi başlattığı sayacı durduramama / sıfırlayamama Firestore yetki hatası giderildi.
-- Gün içinde makineyi kullanan personeller başlangıç ve bitiş/durdurma saatleriyle “Bugünkü Makine Kullanımları” bölümünde listelenir.
-- Sayaç tamamlandığında veya sıfırlandığında kullanım geçmişi silinmez.
-- Süresi bitmiş sayaç makineyi gereksiz yere bloke etmez.
-- Eski kayıtlarda kullanıcı adı kayıt içine daha önce yazılmadıysa isim bulunamayabilir; V9.3.0 ile başlayan yeni kullanımlarda isim kaydı korunur.
+## V9.3.9 — Mobil izin takvimi + Aşçı yıllık izin düzeltmesi
 
-### Oturum ve geri tuşu
-- Firebase Authentication yerel kalıcılığı güçlendirildi; sayfa yenilemede mevcut oturumun geri yüklenmesi beklenir.
-- PBYS içindeki sayfa geçişleri tarayıcı geçmişine yazılır.
-- Telefon / tarayıcı geri tuşu uygulama içindeki önceki PBYS ekranına döner.
-- Ana sayfada yanlışlıkla geri tuşuna basılması için uygulama içi koruma eklendi.
+- İzin Yönetimi ay takvimi mobilde 7 sütun ekran içine sığacak şekilde kompaktlaştırıldı.
+- Aynı güne birden fazla izin düşerse ilk isim gösterilir, kalanlar `+N` olarak açılır.
+- Aşçı ekranında **onaylı Yıllık İzin**, yemek tercihinden daha yüksek önceliğe alındı.
+- Yıllık izinli personel artık `Yemeyecek` yerine `Yıllık izin` grubuna düşer ve hazırlanacak yemekten çıkarılır.
+- Eski kayıtlardaki kullanıcı no / tarih / durum biçimlerine karşı izin eşleştirmesi daha dayanıklı hale getirildi.
+- Aşçı rolünün `leaveRequests` ve `attendance` koleksiyonlarını okuyabilmesi için Firestore Rules açıkça `get/list` olarak tanımlandı.
 
-### Haftalık Faaliyetler
-- Düzenle / Sil butonları faaliyet metninin üzerine binmeyecek şekilde ayrı alt satıra alındı.
+**Önemli:** `firestore.rules` GitHub'a yüklemek tek başına Firebase kurallarını etkinleştirmez. Firebase Console > Firestore Database > Rules bölümünde bu dosyanın içeriğini ayrıca yayımlayın.
 
-### Yıllık İzin Tercihi
-- V9.2.6 özellikleri korunur: Admin ve Karakol Komutanı tercih sistemini açıp kapatabilir, toplu sıfırlama yapabilir ve personelin sıfırlama taleplerini onaylayıp reddedebilir.
-- Firestore Rules içinde Karakol Komutanının `leavePreferencesOpen` ayarını değiştirebilmesi için eksik güvenlik kuralı tamamlandı.
 
-### SMS ile Şifre Sıfırlama
-- Giriş ekranına “Şifremi Unuttum” bölümü eklendi.
-- Telefon numarasına 6 haneli SMS kodu gönderme ve kodla yeni Firebase Authentication şifresi belirleme istemci akışı eklendi.
-- SMS/Firebase yönetici anahtarları web sitesine veya GitHub'a yazılmaz.
-- `PBYS_SMS_SIFRE_SIFIRLAMA.gs` sunucu tarafı Apps Script kodu ve `PBYS_SMS_KURULUM.txt` kurulum yönergesi pakete dahildir.
+## V9.3.7 ek düzenlemeleri
 
-## GitHub'a yüklenecek dosyalar
-Aşağıdakileri sitenin ana dizinindeki aynı isimli dosyaların üzerine yükleyin:
+- Personel Listesi artık ad-soyada göre Türkçe **A-Z** sıralanır.
+- İşlem butonları aynı hücre içinde satır kırarak yerleşir; sağ taraftan sayfa dışına taşmaz.
+- Personel tablosunun sütun genişlikleri masaüstü ve mobil yatay kaydırma için dengelendi.
 
-1. `index.html`
-2. `app.js`
-3. `styles.css`
-4. `firebase.js`
-5. `sw.js`
+- **Aşçı Yemek Ekranı**, yemek tercihlerine ek olarak aynı tarihin personel durumunu da okur.
+- Personel tablosuna **Personel Durumu** sütunu eklendi: Mevcut, Yıllık İzin, Mazeret İzni, Yol İzni, Raporlu / İstirahatli, Görevli, Geçici Görevli, Kurs / Eğitim, Sevkli, Nöbet İstirahati vb.
+- Durum verisi önce **Yoklama** kaydından, yoksa onaylı izin/rapor kaydından, hiçbiri yoksa **Mevcut** varsayımından alınır.
+- Aşçı ekranının üstüne Yıllık İzinli, Raporlu/İstirahatli, Görev/Geçici/Kurs/Sevk ve Mazeret/Yol İzni sayaçları eklendi.
+- İsim listesi pencerelerinde personelin yemek durumu yanında günlük personel durumu da gösterilir.
+- **Aşçı bu verileri yalnızca okur; yoklama veya izin kaydı düzenleyemez.**
+- Firestore kuralları Aşçı rolünün `attendance` ve izin kayıtlarını okuyabilmesi için güncellendi.
 
-## Firebase Rules — ÖNEMLİ
-`firestore.rules` dosyası da güncellendi. Özellikle normal personelin kendi çamaşır sayacını durdurup sıfırlayabilmesi için bu dosyanın Firebase'e yayımlanması gerekir.
+## V9.3.4 düzenlemeleri
 
-Firebase Console > Firestore Database > Rules bölümünden dosya içeriğini yayımlayabilir veya Firebase CLI kullanıyorsanız:
+- **Aşçı rolü**, Aşçı Yemek Ekranında seçili gün için tüm aktif personeli ad/görev bilgisiyle ve Sabah-Akşam yemek durumlarıyla görür.
+- **Aşçı rolü `menu.manage` yetkisini otomatik taşır**; günlük yemek menüsünü düzenleyebilir.
+- **Yemek Tercihim** ekranı büyük kartlar yerine kompakt satır + açılır liste yapısına geçirildi.
+- Personelin yemek tercih listesinde **bugünden eski tarihler gösterilmez**. Dünün tercihi bugün listede görünmez; geçmiş kayıtlar rapor/bilanço geçmişi için veritabanında korunur.
+- Personel yemek ekranında geçmiş haftaya geri gidilemez; gelecek haftadan bu haftaya dönülebilir.
 
-`firebase deploy --only firestore:rules`
 
-## SMS kurulumu — ÖNEMLİ
-Site dosyalarını yüklemek SMS şifre sıfırlamayı tek başına tamamlamaz; şifre Firebase Authentication üzerinde sunucu yetkisiyle değiştirildiği için Apps Script tarafı bir kez kurulmalıdır.
+Bu sürüm **PBYS V9.3.2 Faaliyet Detay** tabanı üzerine hazırlanmıştır.
 
-`PBYS_SMS_KURULUM.txt` içindeki adımları uygulayın. Mevcut Kantin10 SMS Apps Script projesine PBYS handler'ı eklenirse aynı Web App URL'si kullanılabilir ve mevcut Kantin10 işlemleri korunur.
+## Yeni düzenlemeler
 
-**İletiMerkezi API anahtarı/hash ve Firebase servis hesabı JSON'u hiçbir zaman GitHub'a yüklemeyin.** Bunlar yalnızca Apps Script > Script Properties içinde tutulmalıdır.
+### 1. SMS şifre değiştirme korunuyor
+- Giriş ekranındaki **Şifremi Unuttum / SMS ile Şifre Sıfırlama** bölümü aynen kalır.
+- Web App JSON yerine HTML döndürürse artık ham `Unexpected token '<'` hatası yerine
+  anlaşılır servis/dağıtım uyarısı gösterilir.
 
-## Önbellek
-Statik dosya sürümü ve service worker önbelleği `9.3.0` olarak güncellendi.
+### 2. Admin panelinden geçici şifre
+- **Personel Listesi** içindeki her aktif personelde Admin için **Şifre Sıfırla** butonu eklendi.
+- Admin en az 6 karakterlik geçici şifreyi kendisi yazabilir veya **Rastgele Şifre Oluştur** kullanabilir.
+- İşlem sunucu tarafında Admin Firebase ID token'ı ve Firestore rolü doğrulandıktan sonra
+  Firebase Authentication parolasını değiştirir.
+- Personel geçici şifre ile giriş yaptığında kapatılamayan **Geçici Şifrenizi Değiştirin**
+  penceresi açılır ve kendi şifresini belirlemeden PBYS kullanımına devam edemez.
+- Normal **Profilim > Şifremi Değiştir** işlevi de korunur.
+
+### 3. Yıllık izin 30 + 2 = 32 gün
+- Personelin temel hakkı **30 gün yıllık izin + 2 gün yol izni = 32 gün** olarak birlikte hesaplanır.
+- Yeni izin girişinde ayrı **Yol İzni** türü kaldırıldı.
+- **Yıllık İzin** kaydında personelin kullanılmamış yol izni varsa, en fazla kalan yol hakkı
+  önce otomatik olarak yol bakiyesinden; kalan günler yıllık izin bakiyesinden düşer.
+- Örnek: Yol hakkı 2 gün duruyorsa 12 günlük yıllık izin kaydı kullanıldıkça
+  **2 gün yol + 10 gün yıllık izin** olarak hesaplanır.
+- Yol hakkı bittikten sonraki yıllık izinler tamamen 30 günlük yıllık izin bakiyesinden düşer.
+- Eski sürümlerde ayrı oluşturulmuş **Yol İzni** kayıtları silinmez; geriye dönük uyumluluk için hesaba katılır.
+- Toplam onaylı/kullanılmış izin 32 günlük tanımlı hakkı aşarsa yeni yıllık izin onayı engellenir.
+- Ana sayfa, İzinlerim, Personel Listesi ve izin raporu toplam hak/kalan ile yıllık-yol dağılımını gösterir.
+
+## Güncellenecek dosyalar
+
+GitHub/Vercel projenizde şu dosyaları birlikte değiştirin:
+
+- `index.html`
+- `styles.css`
+- `app.js`
+- `firebase.js`
+- `firestore.rules`
+- `sw.js`
+
+Google Apps Script tarafında ayrıca:
+
+- `PBYS_SMS_SIFRE_SIFIRLAMA.gs`
+
+dosyasını güncelleyin ve **New version** ile Web App'i yeniden dağıtın.
+
+Ayrıntılı Apps Script adımları için `PBYS_SMS_KURULUM.txt` dosyasını okuyun.
+
+## Sürüm
+
+Önbellek/asset sürümü: **9.4.0**
+
+
+## V9.3.7 — Aşçı rolü otomatik yetkileri
+- `Aşçı` rolü için ayrıca **Özel Yetki** seçmeye gerek yoktur.
+- Aşçı, Aşçı Yemek Ekranı'nda **tüm onaylı/aktif personeli** otomatik görür.
+- Seçili günün **yıllık izin, rapor/istirahat, görev, geçici görev, kurs/eğitim, sevk, mazeret/yol izni ve yoklama durumları** salt okunur gösterilir.
+- Aşçı, `Yemek Yönetimi` ekranında günlük yemek menüsünü otomatik düzenleyebilir.
+- Firestore kullanıcı sorgusunda aşçı için `approved == true` güvenli geri dönüş sorgusu eklenmiştir; böylece kullanıcı listesi yalnızca aşçının kendi hesabına düşmez.

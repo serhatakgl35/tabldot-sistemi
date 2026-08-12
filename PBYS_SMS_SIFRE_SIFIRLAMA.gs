@@ -1,32 +1,34 @@
 /**
- * PBYS - SMS ile Şifre Sıfırlama
- * Google Apps Script / İletiMerkezi / Firebase Authentication
+ * PBYS - SMS + Admin Şifre Sıfırlama (V9.3.3)
  *
- * Bu dosyayı mevcut Kantin10 SMS Apps Script projenize EKLEYEBİLİRSİNİZ.
- * Mevcut doPost(e) fonksiyonunuzun EN BAŞINA şu iki satırı ekleyin:
+ * Bu sürüm:
+ * - FIREBASE_SERVICE_ACCOUNT_JSON İSTEMEZ.
+ * - ILETI_KEY / ILETI_HASH / ILETI_SENDER'ı tekrar istemez.
+ * - Mevcut Kantin10 Apps Script projesindeki smsGonderIletiMerkezi() fonksiyonunu kullanır.
+ * - PBYS_RESET_SECRET değerini otomatik üretir ve Script Properties'e kendisi kaydeder.
+ * - Firebase Authentication kullanıcılarını ScriptApp.getOAuthToken() ile yönetir.
+ * - Admin panelindeki geçici şifre işlemini Firebase ID token + Firestore admin rolü ile doğrular.
+ *
+ * Mevcut doPost(e) fonksiyonunun en başında şu iki satır bulunmalıdır:
  *
  *   var pbysCevap = pbysPasswordResetDoPost(e);
  *   if (pbysCevap) return pbysCevap;
  *
- * Böylece mevcut Kantin10 işlevleri bozulmadan aynı Web App URL'si PBYS için de kullanılır.
- *
- * Script Properties içinde gerekli değerler:
- * - ILETI_KEY
- * - ILETI_HASH
- * - ILETI_SENDER
- * - FIREBASE_SERVICE_ACCOUNT_JSON   (gencservi-5d47e servis hesabının tam JSON'u)
- * - PBYS_RESET_SECRET               (uzun, rastgele bir gizli metin)
+ * ÖNEMLİ:
+ * Apps Script'i dağıtan Google hesabının gencservi-5d47e projesinde
+ * Firebase Authentication kullanıcılarını görüntüleme/güncelleme yetkisi olmalıdır.
  */
 
 var PBYS_PROJECT_ID = 'gencservi-5d47e';
 var PBYS_AUTH_EMAIL_DOMAIN = 'gencservi.app';
+var PBYS_WEB_API_KEY = 'AIzaSyAUAdNiglZ0UM3JcAUW4JbEAHJg5JwnQD8'; // Firebase Web API key; gizli anahtar değildir.
 var PBYS_RESET_TTL_SECONDS = 300; // 5 dakika
-var PBYS_RESET_RATE_SECONDS = 60; // aynı numaraya 60 sn içinde tekrar kod yok
+var PBYS_RESET_RATE_SECONDS = 60; // 60 saniye tekrar kod yok
 var PBYS_RESET_MAX_ATTEMPTS = 5;
 
 /**
  * Mevcut doPost(e) içinden çağrılır.
- * PBYS action değilse null döner; böylece mevcut Kantin10 kodunuz çalışmaya devam eder.
+ * PBYS isteği değilse null döner ve eski Kantin10 doPost kodu çalışmaya devam eder.
  */
 function pbysPasswordResetDoPost(e) {
   var data;
@@ -37,36 +39,52 @@ function pbysPasswordResetDoPost(e) {
   }
 
   var action = String(data.action || '');
-  if (action !== 'pbysSifreKodGonder' && action !== 'pbysSifreKodDogrula') return null;
+  if (action !== 'pbysSifreKodGonder' &&
+      action !== 'pbysSifreKodDogrula' &&
+      action !== 'pbysAdminSifreSifirla') {
+    return null;
+  }
 
   try {
-    if (action === 'pbysSifreKodGonder') return pbysJson_(pbysSifreKodGonder_(data));
+    if (action === 'pbysSifreKodGonder') {
+      return pbysJson_(pbysSifreKodGonder_(data));
+    }
+    if (action === 'pbysAdminSifreSifirla') {
+      return pbysJson_(pbysAdminSifreSifirla_(data));
+    }
     return pbysJson_(pbysSifreKodDogrula_(data));
   } catch (err) {
-    console.error('PBYS şifre sıfırlama:', err);
-    return pbysJson_({ success:false, message:'İşlem şu anda tamamlanamadı. Lütfen daha sonra tekrar deneyin.' });
+    console.error('PBYS şifre sıfırlama hatası:', err);
+    return pbysJson_({
+      success: false,
+      message: pbysKullaniciHataMesaji_(err)
+    });
   }
 }
 
 function pbysSifreKodGonder_(data) {
   var telefon = pbysTelefon10_(data.telefon);
-  if (!telefon) return { success:false, message:'Geçerli bir cep telefonu numarası girin.' };
+  if (!telefon) {
+    return { success:false, message:'Geçerli bir cep telefonu numarası girin.' };
+  }
 
   var cache = CacheService.getScriptCache();
   var rateKey = 'pbys_reset_rate_' + telefon;
+
   if (cache.get(rateKey)) {
-    return { success:false, message:'Yeni kod istemeden önce kısa bir süre bekleyin.' };
+    return { success:false, message:'Yeni kod istemeden önce 60 saniye bekleyin.' };
   }
-  cache.put(rateKey, '1', PBYS_RESET_RATE_SECONDS);
 
-  // Hesap var/yok bilgisini dışarı vermemek için bulunamazsa da genel başarı mesajı döndürülür.
+  // Önce Firebase Authentication hesabını bul.
   var user = pbysFirebaseUserByPhone_(telefon);
-  if (!user || !user.localId) {
-    return { success:true, message:'Telefon kayıtlı ve onaylıysa doğrulama kodu SMS ile gönderilecektir.' };
-  }
 
-  if (!pbysApprovedProfile_(user.localId)) {
-    return { success:true, message:'Telefon kayıtlı ve onaylıysa doğrulama kodu SMS ile gönderilecektir.' };
+  // Kullanıcı var/yok bilgisini dışarı vermemek için genel cevap döndür.
+  if (!user || !user.localId) {
+    cache.put(rateKey, '1', PBYS_RESET_RATE_SECONDS);
+    return {
+      success:true,
+      message:'Telefon sistemde kayıtlıysa doğrulama kodu SMS ile gönderilecektir.'
+    };
   }
 
   var kod = pbysSixDigitCode_();
@@ -77,15 +95,23 @@ function pbysSifreKodGonder_(data) {
     expiresAt: now + PBYS_RESET_TTL_SECONDS * 1000,
     attempts: 0
   };
-  cache.put('pbys_reset_' + telefon, JSON.stringify(entry), PBYS_RESET_TTL_SECONDS);
 
-  var mesaj = 'PBYS sifre sifirlama kodunuz: ' + kod + '. Kod 5 dakika gecerlidir. Bu kodu kimseyle paylasmayin.';
+  cache.put('pbys_reset_' + telefon, JSON.stringify(entry), PBYS_RESET_TTL_SECONDS);
+  cache.put(rateKey, '1', PBYS_RESET_RATE_SECONDS);
+
+  var mesaj = 'PBYS sifre sifirlama kodunuz: ' + kod +
+    '. Kod 5 dakika gecerlidir. Bu kodu kimseyle paylasmayin.';
+
   if (!pbysSmsGonder_(telefon, mesaj)) {
     cache.remove('pbys_reset_' + telefon);
+    cache.remove(rateKey);
     return { success:false, message:'SMS gönderilemedi. Lütfen biraz sonra tekrar deneyin.' };
   }
 
-  return { success:true, message:'Telefon kayıtlı ve onaylıysa doğrulama kodu SMS ile gönderilecektir.' };
+  return {
+    success:true,
+    message:'Telefon sistemde kayıtlıysa doğrulama kodu SMS ile gönderilecektir.'
+  };
 }
 
 function pbysSifreKodDogrula_(data) {
@@ -100,9 +126,19 @@ function pbysSifreKodDogrula_(data) {
   var cache = CacheService.getScriptCache();
   var key = 'pbys_reset_' + telefon;
   var raw = cache.get(key);
-  if (!raw) return { success:false, message:'Doğrulama kodunun süresi dolmuş. Yeni kod isteyin.' };
 
-  var entry = JSON.parse(raw);
+  if (!raw) {
+    return { success:false, message:'Doğrulama kodunun süresi dolmuş. Yeni kod isteyin.' };
+  }
+
+  var entry;
+  try {
+    entry = JSON.parse(raw);
+  } catch (err) {
+    cache.remove(key);
+    return { success:false, message:'Doğrulama kaydı geçersiz. Yeni kod isteyin.' };
+  }
+
   if (!entry.expiresAt || Date.now() > Number(entry.expiresAt)) {
     cache.remove(key);
     return { success:false, message:'Doğrulama kodunun süresi dolmuş. Yeni kod isteyin.' };
@@ -115,20 +151,192 @@ function pbysSifreKodDogrula_(data) {
   }
 
   if (entry.hash !== pbysCodeHash_(telefon, kod)) {
-    cache.put(key, JSON.stringify(entry), Math.max(1, Math.floor((Number(entry.expiresAt) - Date.now()) / 1000)));
+    var kalan = Math.max(1, Math.floor((Number(entry.expiresAt) - Date.now()) / 1000));
+    cache.put(key, JSON.stringify(entry), kalan);
     return { success:false, message:'Doğrulama kodu hatalı.' };
   }
 
   var user = pbysFirebaseUserByPhone_(telefon);
-  if (!user || !user.localId || user.localId !== entry.uid || !pbysApprovedProfile_(user.localId)) {
+  if (!user || !user.localId || user.localId !== entry.uid) {
     cache.remove(key);
     return { success:false, message:'Hesap doğrulanamadı. Yöneticiye başvurun.' };
   }
 
   pbysFirebasePasswordUpdate_(user.localId, yeniSifre);
+
   cache.remove(key);
   cache.remove('pbys_reset_rate_' + telefon);
-  return { success:true, message:'Şifreniz başarıyla değiştirildi. Yeni şifrenizle giriş yapabilirsiniz.' };
+
+  return {
+    success:true,
+    message:'Şifreniz başarıyla değiştirildi. Yeni şifrenizle giriş yapabilirsiniz.'
+  };
+}
+
+
+/**
+ * Admin panelinden geçici şifre atar.
+ * İstek yapan kişinin Firebase ID token'ı doğrulanır ve Firestore users/{uid}
+ * belgesinde admin rolü taşıdığı ayrıca kontrol edilir.
+ */
+function pbysAdminSifreSifirla_(data) {
+  var adminIdToken = String(data.adminIdToken || '');
+  var targetUid = String(data.targetUid || '');
+  var yeniSifre = String(data.yeniSifre || '');
+
+  if (!adminIdToken) return { success:false, message:'Admin oturumu doğrulanamadı. Yeniden giriş yapın.' };
+  if (!targetUid) return { success:false, message:'Personel kullanıcı kimliği bulunamadı.' };
+  if (yeniSifre.length < 6) return { success:false, message:'Geçici şifre en az 6 karakter olmalıdır.' };
+
+  var caller = pbysFirebaseUserByIdToken_(adminIdToken);
+  if (!caller || !caller.localId) {
+    return { success:false, message:'Admin oturumu doğrulanamadı. Yeniden giriş yapın.' };
+  }
+  if (!pbysFirestoreUserIsAdmin_(caller.localId)) {
+    return { success:false, message:'Bu işlem yalnızca Admin hesabı tarafından yapılabilir.' };
+  }
+
+  // Hedef hesabın gerçekten var olduğunu yönetici API'sinden doğrula.
+  var target = pbysFirebaseUserByUid_(targetUid);
+  if (!target || !target.localId) {
+    return { success:false, message:'Firebase Authentication hesabı bulunamadı.' };
+  }
+
+  pbysFirebasePasswordUpdate_(targetUid, yeniSifre);
+  pbysFirestoreMarkTemporaryPassword_(targetUid, caller.localId);
+
+  return {
+    success:true,
+    message:'Geçici şifre oluşturuldu. Personel ilk girişte kendi şifresini belirleyecektir.'
+  };
+}
+
+/**
+ * Son kullanıcı Firebase ID token'ından hesabı çözer.
+ */
+function pbysFirebaseUserByIdToken_(idToken) {
+  var url = 'https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=' +
+    encodeURIComponent(PBYS_WEB_API_KEY);
+
+  var res = UrlFetchApp.fetch(url, {
+    method: 'post',
+    contentType: 'application/json',
+    payload: JSON.stringify({ idToken: idToken }),
+    muteHttpExceptions: true
+  });
+
+  var code = res.getResponseCode();
+  var text = res.getContentText();
+  if (code === 200) {
+    var parsed = JSON.parse(text || '{}');
+    return parsed.users && parsed.users.length ? parsed.users[0] : null;
+  }
+  if (code === 400 || code === 401) return null;
+  throw new Error('Admin oturum doğrulaması başarısız: ' + code + ' ' + text);
+}
+
+/**
+ * Yönetici OAuth erişimi ile UID üzerinden Authentication kullanıcısını bulur.
+ */
+function pbysFirebaseUserByUid_(uid) {
+  var token = pbysGoogleAccessToken_();
+  var url = 'https://identitytoolkit.googleapis.com/v1/projects/' +
+    encodeURIComponent(PBYS_PROJECT_ID) + '/accounts:lookup';
+
+  var res = UrlFetchApp.fetch(url, {
+    method: 'post',
+    contentType: 'application/json',
+    headers: { Authorization: 'Bearer ' + token },
+    payload: JSON.stringify({ localId: [uid] }),
+    muteHttpExceptions: true
+  });
+
+  var code = res.getResponseCode();
+  var text = res.getContentText();
+  if (code === 200) {
+    var parsed = JSON.parse(text || '{}');
+    return parsed.users && parsed.users.length ? parsed.users[0] : null;
+  }
+  if (code === 404) return null;
+  if (code === 401 || code === 403) {
+    throw new Error('PBYS_FIREBASE_YETKI: Firebase kullanıcı sorgulama yetkisi eksik.');
+  }
+  throw new Error('Firebase UID sorgusu başarısız: ' + code + ' ' + text);
+}
+
+/**
+ * Firestore kullanıcı profilinde admin rolünü kontrol eder.
+ */
+function pbysFirestoreUserIsAdmin_(uid) {
+  var token = pbysGoogleAccessToken_();
+  var url = 'https://firestore.googleapis.com/v1/projects/' +
+    encodeURIComponent(PBYS_PROJECT_ID) +
+    '/databases/(default)/documents/users/' + encodeURIComponent(uid);
+
+  var res = UrlFetchApp.fetch(url, {
+    method: 'get',
+    headers: { Authorization: 'Bearer ' + token },
+    muteHttpExceptions: true
+  });
+
+  var code = res.getResponseCode();
+  var text = res.getContentText();
+  if (code === 404) return false;
+  if (code === 401 || code === 403) {
+    throw new Error('PBYS_FIREBASE_YETKI: Firestore kullanıcı profilini okuma yetkisi eksik.');
+  }
+  if (code !== 200) throw new Error('Firestore profil sorgusu başarısız: ' + code + ' ' + text);
+
+  var doc = JSON.parse(text || '{}');
+  var fields = doc.fields || {};
+  var role = fields.role && fields.role.stringValue ? String(fields.role.stringValue) : '';
+  if (role === 'admin') return true;
+
+  var values = fields.roles && fields.roles.arrayValue && fields.roles.arrayValue.values
+    ? fields.roles.arrayValue.values
+    : [];
+  return values.some(function(v) { return String(v.stringValue || '') === 'admin'; });
+}
+
+/**
+ * Geçici şifre verildiğini Firestore profiline işler.
+ * Böylece personel giriş yaptığında uygulama şifre değiştirme ekranını zorunlu açar.
+ */
+function pbysFirestoreMarkTemporaryPassword_(targetUid, adminUid) {
+  var token = pbysGoogleAccessToken_();
+  var base = 'https://firestore.googleapis.com/v1/projects/' +
+    encodeURIComponent(PBYS_PROJECT_ID) +
+    '/databases/(default)/documents/users/' + encodeURIComponent(targetUid);
+
+  var fields = [
+    'mustChangePassword',
+    'passwordResetAt',
+    'passwordResetByUid'
+  ];
+  var query = fields.map(function(f) {
+    return 'updateMask.fieldPaths=' + encodeURIComponent(f);
+  }).join('&');
+
+  var payload = {
+    fields: {
+      mustChangePassword: { booleanValue: true },
+      passwordResetAt: { timestampValue: new Date().toISOString() },
+      passwordResetByUid: { stringValue: adminUid }
+    }
+  };
+
+  var res = UrlFetchApp.fetch(base + '?' + query, {
+    method: 'patch',
+    contentType: 'application/json',
+    headers: { Authorization: 'Bearer ' + token },
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true
+  });
+
+  var code = res.getResponseCode();
+  if (code !== 200) {
+    throw new Error('Geçici şifre işareti Firestore profiline yazılamadı: ' + code + ' ' + res.getContentText());
+  }
 }
 
 function pbysTelefon10_(value) {
@@ -140,137 +348,218 @@ function pbysTelefon10_(value) {
 
 function pbysSixDigitCode_() {
   var source = Utilities.getUuid() + ':' + Date.now() + ':' + Math.random();
-  var digest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, source, Utilities.Charset.UTF_8);
+  var digest = Utilities.computeDigest(
+    Utilities.DigestAlgorithm.SHA_256,
+    source,
+    Utilities.Charset.UTF_8
+  );
+
   var n = 0;
-  for (var i = 0; i < 4; i++) n = (n * 256 + (digest[i] & 255)) >>> 0;
+  for (var i = 0; i < 4; i++) {
+    n = (n * 256 + (digest[i] & 255)) >>> 0;
+  }
   return String(n % 1000000).padStart(6, '0');
 }
 
+/**
+ * Gizli hash anahtarı kullanıcıdan istenmez.
+ * İlk kullanımda otomatik oluşturulup Script Properties'e kaydedilir.
+ */
+function pbysResetSecret_() {
+  var props = PropertiesService.getScriptProperties();
+  var secret = props.getProperty('PBYS_AUTO_RESET_SECRET');
+
+  if (!secret) {
+    secret = Utilities.getUuid() + Utilities.getUuid() + Utilities.getUuid();
+    props.setProperty('PBYS_AUTO_RESET_SECRET', secret);
+  }
+
+  return secret;
+}
+
 function pbysCodeHash_(telefon, kod) {
-  var secret = PropertiesService.getScriptProperties().getProperty('PBYS_RESET_SECRET');
-  if (!secret) throw new Error('PBYS_RESET_SECRET Script Property tanımlı değil.');
-  var raw = telefon + ':' + kod + ':' + secret;
-  var digest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, raw, Utilities.Charset.UTF_8);
+  var raw = telefon + ':' + kod + ':' + pbysResetSecret_();
+  var digest = Utilities.computeDigest(
+    Utilities.DigestAlgorithm.SHA_256,
+    raw,
+    Utilities.Charset.UTF_8
+  );
   return Utilities.base64EncodeWebSafe(digest).replace(/=+$/g, '');
 }
 
+/**
+ * Firebase Authentication kullanıcısını, PBYS'nin telefon->e-posta formatı ile bulur.
+ */
 function pbysFirebaseUserByPhone_(telefon) {
   var email = '0' + telefon + '@' + PBYS_AUTH_EMAIL_DOMAIN;
   var token = pbysGoogleAccessToken_();
-  var url = 'https://identitytoolkit.googleapis.com/v1/projects/' + encodeURIComponent(PBYS_PROJECT_ID) + '/accounts:lookup';
+  var url = 'https://identitytoolkit.googleapis.com/v1/projects/' +
+    encodeURIComponent(PBYS_PROJECT_ID) + '/accounts:lookup';
+
   var res = UrlFetchApp.fetch(url, {
-    method:'post',
-    contentType:'application/json',
-    headers:{ Authorization:'Bearer ' + token },
-    payload:JSON.stringify({ email:[email] }),
-    muteHttpExceptions:true
+    method: 'post',
+    contentType: 'application/json',
+    headers: { Authorization: 'Bearer ' + token },
+    payload: JSON.stringify({ email: [email] }),
+    muteHttpExceptions: true
   });
-  if (res.getResponseCode() === 200) {
-    var parsed = JSON.parse(res.getContentText() || '{}');
+
+  var code = res.getResponseCode();
+  var text = res.getContentText();
+
+  if (code === 200) {
+    var parsed = JSON.parse(text || '{}');
     return parsed.users && parsed.users.length ? parsed.users[0] : null;
   }
-  if (res.getResponseCode() === 404) return null;
-  throw new Error('Firebase kullanıcı sorgusu başarısız: ' + res.getResponseCode() + ' ' + res.getContentText());
-}
 
-function pbysApprovedProfile_(uid) {
-  var token = pbysGoogleAccessToken_();
-  var url = 'https://firestore.googleapis.com/v1/projects/' + encodeURIComponent(PBYS_PROJECT_ID) + '/databases/(default)/documents/users/' + encodeURIComponent(uid);
-  var res = UrlFetchApp.fetch(url, {
-    method:'get',
-    headers:{ Authorization:'Bearer ' + token },
-    muteHttpExceptions:true
-  });
-  if (res.getResponseCode() !== 200) return false;
-  var doc = JSON.parse(res.getContentText() || '{}');
-  var fields = doc.fields || {};
-  var approved = !!(fields.approved && fields.approved.booleanValue === true);
-  var rejected = !!(fields.rejected && fields.rejected.booleanValue === true);
-  return approved && !rejected;
+  if (code === 404) return null;
+
+  if (code === 401 || code === 403) {
+    throw new Error(
+      'PBYS_FIREBASE_YETKI: Google Apps Script hesabının gencservi-5d47e Firebase Authentication yetkisi yok veya Identity Toolkit OAuth izni eksik.'
+    );
+  }
+
+  throw new Error('Firebase kullanıcı sorgusu başarısız: ' + code + ' ' + text);
 }
 
 function pbysFirebasePasswordUpdate_(uid, password) {
   var token = pbysGoogleAccessToken_();
-  var url = 'https://identitytoolkit.googleapis.com/v1/projects/' + encodeURIComponent(PBYS_PROJECT_ID) + '/accounts:update';
+  var url = 'https://identitytoolkit.googleapis.com/v1/projects/' +
+    encodeURIComponent(PBYS_PROJECT_ID) + '/accounts:update';
+
   var res = UrlFetchApp.fetch(url, {
-    method:'post',
-    contentType:'application/json',
-    headers:{ Authorization:'Bearer ' + token },
-    payload:JSON.stringify({ localId:uid, password:password }),
-    muteHttpExceptions:true
+    method: 'post',
+    contentType: 'application/json',
+    headers: { Authorization: 'Bearer ' + token },
+    payload: JSON.stringify({
+      localId: uid,
+      password: password
+    }),
+    muteHttpExceptions: true
   });
-  if (res.getResponseCode() !== 200) {
-    throw new Error('Firebase şifre güncellemesi başarısız: ' + res.getResponseCode() + ' ' + res.getContentText());
+
+  var code = res.getResponseCode();
+  var text = res.getContentText();
+
+  if (code !== 200) {
+    if (code === 401 || code === 403) {
+      throw new Error(
+        'PBYS_FIREBASE_YETKI: Google Apps Script hesabının Firebase Authentication kullanıcı güncelleme yetkisi yok veya Identity Toolkit OAuth izni eksik.'
+      );
+    }
+    throw new Error('Firebase şifre güncellemesi başarısız: ' + code + ' ' + text);
   }
 }
 
+/**
+ * Mevcut Kantin10 SMS fonksiyonunu aynen kullanır.
+ * ILETI_KEY, ILETI_HASH, ILETI_SENDER burada tekrar tanımlanmaz.
+ */
 function pbysSmsGonder_(telefon, mesaj) {
-  var props = PropertiesService.getScriptProperties();
-  var key = props.getProperty('ILETI_KEY');
-  var hash = props.getProperty('ILETI_HASH');
-  var sender = props.getProperty('ILETI_SENDER');
-  if (!key || !hash || !sender) throw new Error('İletiMerkezi Script Properties eksik.');
+  if (typeof smsGonderIletiMerkezi !== 'function') {
+    throw new Error(
+      'PBYS_SMS_FONKSIYON_YOK: Mevcut projede smsGonderIletiMerkezi(telefon, mesaj) fonksiyonu bulunamadı.'
+    );
+  }
 
-  var payload = {
-    request:{
-      authentication:{ key:key, hash:hash },
-      order:{
-        sender:sender,
-        sendDateTime:[],
-        iys:'0',
-        iysList:'BIREYSEL',
-        message:{ text:mesaj, receipents:{ number:[telefon] } }
-      }
-    }
-  };
-
-  var res = UrlFetchApp.fetch('https://api.iletimerkezi.com/v1/send-sms/json', {
-    method:'post',
-    contentType:'application/json',
-    payload:JSON.stringify(payload),
-    muteHttpExceptions:true
-  });
-  console.log('PBYS SMS cevap: ' + res.getResponseCode() + ' ' + res.getContentText());
-  return res.getResponseCode() === 200;
+  return smsGonderIletiMerkezi(telefon, mesaj) === true;
 }
 
+/**
+ * Service Account JSON yerine Apps Script'i dağıtan Google hesabının OAuth belirtecini kullanır.
+ * Hesabın gencservi-5d47e projesinde firebaseauth.users.get ve firebaseauth.users.update
+ * izinlerini içeren bir rolü olmalıdır.
+ */
 function pbysGoogleAccessToken_() {
-  var raw = PropertiesService.getScriptProperties().getProperty('FIREBASE_SERVICE_ACCOUNT_JSON');
-  if (!raw) throw new Error('FIREBASE_SERVICE_ACCOUNT_JSON Script Property tanımlı değil.');
-  var sa = JSON.parse(raw);
-  if (!sa.client_email || !sa.private_key) throw new Error('Firebase servis hesabı JSON geçersiz.');
-
-  var now = Math.floor(Date.now() / 1000);
-  var header = pbysB64Url_(JSON.stringify({ alg:'RS256', typ:'JWT' }));
-  var claim = pbysB64Url_(JSON.stringify({
-    iss:sa.client_email,
-    scope:'https://www.googleapis.com/auth/cloud-platform',
-    aud:'https://oauth2.googleapis.com/token',
-    iat:now,
-    exp:now + 3600
-  }));
-  var unsigned = header + '.' + claim;
-  var signature = Utilities.computeRsaSha256Signature(unsigned, sa.private_key);
-  var assertion = unsigned + '.' + Utilities.base64EncodeWebSafe(signature).replace(/=+$/g, '');
-
-  var res = UrlFetchApp.fetch('https://oauth2.googleapis.com/token', {
-    method:'post',
-    payload:{
-      grant_type:'urn:ietf:params:oauth:grant-type:jwt-bearer',
-      assertion:assertion
-    },
-    muteHttpExceptions:true
-  });
-  if (res.getResponseCode() !== 200) throw new Error('Google OAuth token alınamadı: ' + res.getContentText());
-  var data = JSON.parse(res.getContentText() || '{}');
-  if (!data.access_token) throw new Error('Google OAuth access_token yok.');
-  return data.access_token;
+  return ScriptApp.getOAuthToken();
 }
 
-function pbysB64Url_(text) {
-  return Utilities.base64EncodeWebSafe(text, Utilities.Charset.UTF_8).replace(/=+$/g, '');
+function pbysKullaniciHataMesaji_(err) {
+  var text = String((err && err.message) || err || '');
+
+  if (text.indexOf('PBYS_FIREBASE_YETKI') >= 0) {
+    return 'Firebase yetkisi eksik. Google Apps Script hesabının PBYS Firebase projesine erişimini kontrol edin.';
+  }
+
+  if (text.indexOf('PBYS_SMS_FONKSIYON_YOK') >= 0) {
+    return 'Mevcut Kantin10 SMS fonksiyonu bulunamadı. Yöneticiye bildirin.';
+  }
+
+  if (text.indexOf('Admin oturum') >= 0) {
+    return 'Admin oturumu doğrulanamadı. Çıkış yapıp yeniden giriş yapın.';
+  }
+
+  return 'İşlem şu anda tamamlanamadı. Lütfen daha sonra tekrar deneyin.';
 }
 
 function pbysJson_(obj) {
-  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
+  return ContentService
+    .createTextOutput(JSON.stringify(obj))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+/**
+ * TEK SEFERLİK KONTROL:
+ * Apps Script editöründe bu fonksiyonu elle çalıştırın.
+ * SMS göndermez; mevcut SMS fonksiyonunu ve Firebase OAuth erişimini kontrol eder.
+ */
+function pbysKurulumKontrol() {
+  Logger.log('PBYS kurulum kontrolü başladı.');
+
+  if (typeof smsGonderIletiMerkezi !== 'function') {
+    throw new Error('smsGonderIletiMerkezi() bulunamadı.');
+  }
+  Logger.log('1/4 SMS fonksiyonu bulundu.');
+
+  pbysResetSecret_();
+  Logger.log('2/4 Gizli doğrulama anahtarı otomatik hazırlandı.');
+
+  var token = pbysGoogleAccessToken_();
+  if (!token) throw new Error('Google OAuth token alınamadı.');
+
+  // Var olmayan örnek bir e-posta ile yalnızca API yetkisini test eder.
+  var url = 'https://identitytoolkit.googleapis.com/v1/projects/' +
+    encodeURIComponent(PBYS_PROJECT_ID) + '/accounts:lookup';
+  var res = UrlFetchApp.fetch(url, {
+    method: 'post',
+    contentType: 'application/json',
+    headers: { Authorization: 'Bearer ' + token },
+    payload: JSON.stringify({ email: ['pbys-kurulum-kontrol-yok@gencservi.app'] }),
+    muteHttpExceptions: true
+  });
+
+  Logger.log('Firebase test HTTP kodu: ' + res.getResponseCode());
+  Logger.log('Firebase test cevabı: ' + res.getContentText());
+
+  if (res.getResponseCode() === 401 || res.getResponseCode() === 403) {
+    throw new Error(
+      'Firebase OAuth yetkisi eksik. Apps Script manifestine Identity Toolkit scope eklenmesi veya Google hesabının proje yetkisinin kontrol edilmesi gerekiyor.'
+    );
+  }
+
+  if (res.getResponseCode() !== 200 && res.getResponseCode() !== 404) {
+    throw new Error('Firebase API testi başarısız: HTTP ' + res.getResponseCode());
+  }
+
+  Logger.log('3/4 Firebase Authentication erişimi başarılı.');
+
+  var firestoreUrl = 'https://firestore.googleapis.com/v1/projects/' +
+    encodeURIComponent(PBYS_PROJECT_ID) +
+    '/databases/(default)/documents/users/pbys-kurulum-kontrol-yok';
+  var firestoreRes = UrlFetchApp.fetch(firestoreUrl, {
+    method: 'get',
+    headers: { Authorization: 'Bearer ' + token },
+    muteHttpExceptions: true
+  });
+  Logger.log('Firestore test HTTP kodu: ' + firestoreRes.getResponseCode());
+  if (firestoreRes.getResponseCode() === 401 || firestoreRes.getResponseCode() === 403) {
+    throw new Error('Firestore OAuth/IAM yetkisi eksik. Admin şifre sıfırlama personel profilini doğrulayamaz.');
+  }
+  if (firestoreRes.getResponseCode() !== 200 && firestoreRes.getResponseCode() !== 404) {
+    throw new Error('Firestore API testi başarısız: HTTP ' + firestoreRes.getResponseCode());
+  }
+
+  Logger.log('4/4 Firestore erişimi başarılı.');
+  Logger.log('PBYS SMS + Admin şifre sıfırlama kurulumu hazır.');
 }

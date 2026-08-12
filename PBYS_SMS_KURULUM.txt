@@ -1,24 +1,57 @@
-PBYS SMS İLE ŞİFRE SIFIRLAMA - TEK SEFERLİK KURULUM
+PBYS SMS + ADMIN ŞİFRE SIFIRLAMA — V9.3.3
 
-1) Mevcut Kantin10 SMS Google Apps Script projenizi açın.
-2) PBYS_SMS_SIFRE_SIFIRLAMA.gs dosyasının içeriğini projeye yeni bir .gs dosyası olarak ekleyin.
-3) Mevcut doPost(e) fonksiyonunuzun EN BAŞINA şu iki satırı ekleyin:
+Bu sürümde iki şifre kurtarma yöntemi birlikte çalışır:
+1) Personel giriş ekranından SMS doğrulama koduyla kendi şifresini değiştirebilir.
+2) Admin, Personel Listesi > Şifre Sıfırla ile personele geçici şifre oluşturabilir.
+   Personel geçici şifreyle giriş yaptığında PBYS yeni kişisel şifre oluşturmasını zorunlu ister.
 
-var pbysCevap = pbysPasswordResetDoPost(e);
-if (pbysCevap) return pbysCevap;
+KURULUM / GÜNCELLEME
+1) PBYS_SMS_SIFRE_SIFIRLAMA.gs içeriğini mevcut Kantin10 SMS Google Apps Script projesindeki
+   PBYS şifre sıfırlama .gs dosyasının üzerine yapıştırın.
 
-4) Project Settings > Script Properties içine aşağıdaki değerleri ekleyin:
-   ILETI_KEY = mevcut İletiMerkezi API anahtarınız
-   ILETI_HASH = mevcut İletiMerkezi hash değeriniz
-   ILETI_SENDER = mevcut onaylı SMS başlığınız
-   FIREBASE_SERVICE_ACCOUNT_JSON = gencservi-5d47e Firebase servis hesabının TAM JSON içeriği
-   PBYS_RESET_SECRET = en az 32 karakter rastgele gizli metin
+2) Mevcut doPost(e) fonksiyonunun EN BAŞINDA şu iki satır bulunmalıdır:
 
-5) Apps Script Web App'i yeniden dağıtın (New version / Deploy).
-6) Aynı dağıtım URL'sini kullanıyorsanız app.js içindeki PBYS_SMS_WEB_APP_URL değişmeden kalabilir.
-   Yeni ayrı bir Web App oluşturduysanız app.js içindeki PBYS_SMS_WEB_APP_URL değerini yeni URL ile değiştirin.
+   var pbysCevap = pbysPasswordResetDoPost(e);
+   if (pbysCevap) return pbysCevap;
+
+3) Mevcut smsGonderIletiMerkezi(telefon, mesaj) fonksiyonu projede kalmalıdır.
+   ILETI_KEY, ILETI_HASH, ILETI_SENDER bilgilerini yeniden tanımlamayın.
+
+4) appsscript.json oauthScopes listesinde şunlar bulunmalıdır:
+   https://www.googleapis.com/auth/script.external_request
+   https://www.googleapis.com/auth/datastore
+   https://www.googleapis.com/auth/script.scriptapp
+   https://www.googleapis.com/auth/identitytoolkit
+
+5) Apps Script standard GCP projesi PBYS Firebase projesine bağlı olmalıdır:
+   Proje numarası: 368555262601
+   Proje kimliği: gencservi-5d47e
+
+6) GCP projesinde Identity Toolkit API etkin olmalıdır.
+
+7) Apps Script'i dağıtan Google hesabının Firebase Authentication kullanıcılarını
+   görüntüleme/güncelleme ve Firestore kullanıcı profilini okuma/yazma yetkisi olmalıdır.
+
+8) Google Auth Platform Testing modundaysa Apps Script'i dağıtan Google hesabını
+   Audience > Test users listesine ekleyin.
+
+9) Apps Script editöründe pbysKurulumKontrol fonksiyonunu elle çalıştırın.
+   4/4 Firestore erişimi başarılı mesajını görmelisiniz.
+
+10) Deploy > Manage deployments > mevcut Web App > Edit > New version ile YENİ SÜRÜM dağıtın.
+    "Execute as": Me
+    Web App erişimi, PBYS sitesinin oturum açmadan POST isteği gönderebilmesi için
+    projenizde izin verilen en açık uygun seçenek (genellikle "Anyone") olmalıdır.
+    Dağıtım URL'si değişmiyorsa app.js içindeki URL'yi değiştirmeyin.
+
+ÖNEMLİ — "Unexpected token '<', '<!DOCTYPE ...' is not valid JSON"
+Bu hata Apps Script Web App'in JSON yerine HTML sayfası döndürdüğünü gösterir.
+V9.3.3 istemci kodu artık bu durumda anlaşılır hata mesajı gösterir; ancak asıl çözüm
+Web App dağıtımının güncel ve erişilebilir olmasıdır. Özellikle 2. ve 10. adımı kontrol edin.
 
 GÜVENLİK
-- İletiMerkezi anahtarı/hash veya Firebase servis hesabı JSON'u app.js / GitHub içine yazılmamalıdır.
-- Bunlar yalnızca Apps Script'in Script Properties alanında tutulmalıdır.
-- Kodlar 5 dakika geçerlidir, 5 hatalı denemeden sonra iptal edilir ve aynı numaraya 60 saniye içinde tekrar kod gönderilmez.
+Admin şifre sıfırlama isteği sadece ekrandaki Admin rolüne güvenmez.
+Sunucu tarafında Firebase ID token doğrulanır ve Firestore users/{uid} profilinde
+admin rolü tekrar kontrol edilir. Geçerli Admin değilse başka personelin şifresi değiştirilemez.
+
+Bu sürüm FIREBASE_SERVICE_ACCOUNT_JSON istemez.
