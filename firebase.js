@@ -14,6 +14,7 @@ import {
   collection,
   getDocs,
   query,
+  where,
   limit,
   doc,
   getDoc,
@@ -239,6 +240,10 @@ async function changePassword(newPassword) {
   if (!auth.currentUser) throw new Error('Oturum bulunamadı.');
   await updatePassword(auth.currentUser, newPassword);
 }
+async function getIdToken(forceRefresh = false) {
+  if (!auth.currentUser) throw new Error('Oturum bulunamadı.');
+  return await auth.currentUser.getIdToken(Boolean(forceRefresh));
+}
 
 async function collectionData(name) {
   const snap = await getDocs(collection(firestore, name));
@@ -254,6 +259,17 @@ async function collectionDataSafe(name) {
     return await collectionData(name);
   } catch (error) {
     if (isPermissionDenied(error)) {
+      // Aşçı / tabldot gibi operasyonel roller kullanıcı koleksiyonunun tamamını
+      // değil, yalnızca onaylı aktif personeli okuyabilir. Firestore Rules bu
+      // sorguya izin verdiği için kendi profiline düşme sorunu yaşanmaz.
+      if (name === COLLECTIONS.users) {
+        try {
+          const snap = await getDocs(query(collection(firestore, COLLECTIONS.users), where('approved', '==', true)));
+          return snap.docs.map(d => ({ ...d.data(), _docId: d.id }));
+        } catch (fallbackError) {
+          if (!isPermissionDenied(fallbackError)) throw fallbackError;
+        }
+      }
       console.warn(`Firestore koleksiyonu bu kullanıcı için kapalı: ${name}`);
       return [];
     }
@@ -448,13 +464,30 @@ function startRealtime(callback) {
       }
     }, 350);
   };
-  names.forEach(name => realtimeUnsubs.push(onSnapshot(collection(firestore, name), schedule, error => {
-    if (isPermissionDenied(error)) {
-      console.warn(`Realtime erişimi bu kullanıcı için kapalı: ${name}`);
-      return;
-    }
-    console.error(`Listener ${name}`, error);
-  })));
+  names.forEach(name => {
+    const attachApprovedUsersFallback = () => {
+      const approvedUsersQuery = query(collection(firestore, COLLECTIONS.users), where('approved', '==', true));
+      realtimeUnsubs.push(onSnapshot(approvedUsersQuery, schedule, fallbackError => {
+        if (isPermissionDenied(fallbackError)) {
+          console.warn('Realtime onaylı personel erişimi de kapalı: users');
+          return;
+        }
+        console.error('Listener users (approved fallback)', fallbackError);
+      }));
+    };
+
+    realtimeUnsubs.push(onSnapshot(collection(firestore, name), schedule, error => {
+      if (isPermissionDenied(error)) {
+        // Aşçı rolü tüm aktif personeli özel yetki olmadan izleyebilsin.
+        // users koleksiyonunun tam liste sorgusu reddedilirse yalnızca approved=true
+        // personeller için güvenli sorguya otomatik geçilir.
+        if (name === COLLECTIONS.users) attachApprovedUsersFallback();
+        else console.warn(`Realtime erişimi bu kullanıcı için kapalı: ${name}`);
+        return;
+      }
+      console.error(`Listener ${name}`, error);
+    }));
+  });
   return stopRealtime;
 }
 
@@ -475,6 +508,7 @@ window.FirebaseBridge = {
   waitForAuthState,
   currentAuthUser: () => auth.currentUser,
   changePassword,
+  getIdToken,
   loadState,
   saveState,
   startRealtime,
