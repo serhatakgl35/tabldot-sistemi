@@ -194,10 +194,10 @@ service cloud.firestore {
     match /leaveRequests/{docId} {
       // Aşçı ekranı seçili günün yıllık izin / rapor gibi personel durumlarını okuyabilsin.
       // Arayüzde aşçıya yalnızca operasyonel durum gösterilir; kayıt düzenleme yetkisi verilmez.
-      allow get, list: if approved() && (
-        kitchenViewer() ||
-        leaveViewer() ||
+      allow read: if approved() && (
         isOwnNumericUserId(resource.data) ||
+        leaveViewer() ||
+        kitchenViewer() ||
         (financeManager() && resource.data.status == 'approved' && resource.data.type == 'Yıllık İzin')
       );
 
@@ -248,7 +248,7 @@ service cloud.firestore {
 
     match /attendance/{docId} {
       // Aşçı sadece ekranında günlük personel durumunu okuyabilir; yoklama kaydı değiştiremez.
-      allow get, list: if approved() && (kitchenViewer() || attendanceViewer() || isOwnNumericUserId(resource.data));
+      allow read: if approved() && (isOwnNumericUserId(resource.data) || attendanceViewer() || kitchenViewer());
       allow write: if attendanceManager();
     }
 
