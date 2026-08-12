@@ -429,27 +429,44 @@ async function saveDailyMenu(dateValue, menu) {
 }
 
 
+async function kitchenReadPart(label, reader) {
+  try {
+    const snap = await reader();
+    return { ok: true, label, docs: snap.docs.map(d => ({ ...d.data(), _docId: d.id })) };
+  } catch (error) {
+    console.error(`[PBYS Aşçı] ${label} okunamadı`, error);
+    return {
+      ok: false,
+      label,
+      code: error?.code || 'unknown',
+      message: error?.message || String(error || 'Bilinmeyen hata'),
+      docs: []
+    };
+  }
+}
+
 async function loadKitchenSnapshot(dateValue) {
   if (!auth.currentUser) throw new Error('Oturum bulunamadı.');
   const date = String(dateValue || '').trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('Geçerli bir tarih bulunamadı.');
 
-  // Aşçı ekranı genel state/realtime önbelleğine bağımlı kalmasın.
-  // Her açılış/yenilemede operasyonel veriler doğrudan Firestore'dan okunur.
-  const [usersSnap, leavesSnap, attendanceSnap, mealSnap] = await Promise.all([
-    getDocs(query(collection(firestore, COLLECTIONS.users), where('approved', '==', true))),
-    getDocs(collection(firestore, COLLECTIONS.leaveRequests)),
-    getDocs(collection(firestore, COLLECTIONS.attendance)),
-    getDocs(query(collection(firestore, COLLECTIONS.mealChoices), where('date', '==', date)))
+  // V9.3.18: Bir koleksiyonun hatası tüm Aşçı yenilemesini iptal etmez.
+  const [usersPart, leavesPart, attendancePart, mealsPart] = await Promise.all([
+    kitchenReadPart('Aktif personel', () => getDocs(query(collection(firestore, COLLECTIONS.users), where('approved', '==', true)))),
+    kitchenReadPart('İzin / rapor', () => getDocs(collection(firestore, COLLECTIONS.leaveRequests))),
+    kitchenReadPart('Yoklama', () => getDocs(collection(firestore, COLLECTIONS.attendance))),
+    kitchenReadPart('Yemek tercihleri', () => getDocs(query(collection(firestore, COLLECTIONS.mealChoices), where('date', '==', date))))
   ]);
 
-  const docs = snap => snap.docs.map(d => ({ ...d.data(), _docId: d.id }));
   return {
     date,
-    users: docs(usersSnap),
-    leaveRequests: docs(leavesSnap),
-    attendance: docs(attendanceSnap),
-    mealChoices: docs(mealSnap),
+    users: usersPart.ok ? usersPart.docs : null,
+    leaveRequests: leavesPart.ok ? leavesPart.docs : null,
+    attendance: attendancePart.ok ? attendancePart.docs : null,
+    mealChoices: mealsPart.ok ? mealsPart.docs : null,
+    errors: [usersPart, leavesPart, attendancePart, mealsPart]
+      .filter(x => !x.ok)
+      .map(x => ({ label: x.label, code: x.code, message: x.message })),
     fetchedAt: new Date().toISOString()
   };
 }
