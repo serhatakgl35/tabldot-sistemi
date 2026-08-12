@@ -1455,3 +1455,17 @@ input:hover,select:hover,textarea:hover{border-color:#cfd8e3}input:focus,select:
   .leave-calendar-tools{display:grid;grid-template-columns:1fr 1fr;width:100%;gap:6px}
   .leave-calendar-tools .btn{width:100%;min-width:0;padding:9px 6px;font-size:10px}
 }
+
+
+/* PBYS V9.4.2 — A-Z arama, izin kullanım özeti ve izin türü renkleri */
+.search-filter-hidden{display:none!important}
+.searchable-card-header{gap:14px;flex-wrap:wrap}
+.list-search{display:flex;align-items:center;gap:7px;min-width:min(100%,300px);margin:0;padding:8px 10px;border:1px solid var(--border,#dfe5ec);border-radius:12px;background:#fff}
+.list-search>span{font-size:13px;opacity:.65}.list-search input{width:100%;min-width:0;height:auto;padding:0;border:0;outline:0;background:transparent;font-size:12px;color:var(--text,#172033);box-shadow:none}
+.search-actions,.weekly-header-tools{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}.weekly-header-tools{flex-direction:column;align-items:flex-end}.weekly-header-tools .calendar-actions{width:auto}
+.person-leave-usage-title{margin-bottom:10px}.person-leave-usage-title h3{margin:0 0 3px}.person-leave-usage-title p{margin:0;color:var(--muted);font-size:12px}
+.leave-usage-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.leave-usage-card{display:flex;align-items:center;gap:10px;min-height:88px;padding:13px;border:1px solid var(--border,#dfe5ec);border-radius:15px;background:#fff}.leave-usage-card.remaining{background:#effcf7;border-color:#a7e8cf}.leave-usage-icon{display:grid;place-items:center;width:38px;height:38px;flex:0 0 38px;border-radius:11px;background:#f4f7fa}.leave-usage-card div{display:flex;min-width:0;flex-direction:column;gap:3px}.leave-usage-card small{font-size:10px;font-weight:800;color:var(--muted)}.leave-usage-card strong{font-family:Manrope,Inter,sans-serif;font-size:20px;line-height:1.05}.leave-usage-card em{font-size:9px;font-style:normal;color:var(--muted);line-height:1.3}
+.leave-type-legend{display:flex;gap:8px 14px;flex-wrap:wrap;padding:10px 2px 2px;color:var(--muted);font-size:10px;font-weight:700}.leave-type-legend span{display:flex;align-items:center;gap:5px}.legend-swatch{width:10px;height:10px;border-radius:3px;display:inline-block}.legend-swatch.leave-annual,.calendar-event.leave-annual{background:#dcfce7;color:#166534}.legend-swatch.leave-health,.calendar-event.leave-health{background:#fee2e2;color:#991b1b}.legend-swatch.leave-excuse,.calendar-event.leave-excuse{background:#ffedd5;color:#9a3412}.legend-swatch.leave-daily,.calendar-event.leave-daily{background:#dbeafe;color:#1d4ed8}.legend-swatch.leave-road,.calendar-event.leave-road{background:#ede9fe;color:#6d28d9}.legend-swatch.leave-other,.calendar-event.leave-other{background:#eef2f6;color:#475467}
+@media(max-width:900px){.leave-usage-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:760px){.searchable-card-header{align-items:stretch}.list-search{width:100%;min-width:0}.search-actions,.weekly-header-tools{width:100%;align-items:stretch;flex-direction:column}.search-actions .btn{width:100%}.weekly-header-tools .calendar-actions{width:100%}.leave-usage-grid{grid-template-columns:1fr 1fr}.leave-usage-card{min-height:78px;padding:10px}.leave-usage-card strong{font-size:17px}}
+@media(max-width:430px){.leave-usage-grid{grid-template-columns:1fr}.leave-type-legend{font-size:9px}}
