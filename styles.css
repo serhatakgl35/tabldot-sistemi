@@ -1226,3 +1226,85 @@ input:hover,select:hover,textarea:hover{border-color:#cfd8e3}input:focus,select:
   .attendance-mini-card strong{font-size:12px}
   .weekly-activity-day .activity-actions{justify-content:flex-start}
 }
+
+/* V9.3.1 — başlangıçta oturum çözülene kadar giriş ekranını göstermeme */
+.startup-loading{
+  position:fixed;
+  inset:0;
+  z-index:9999;
+  display:grid;
+  place-items:center;
+  padding:24px;
+  background:linear-gradient(145deg,#07111f 0%,#0b1728 54%,#0d2130 100%);
+}
+.startup-loading.hidden{display:none}
+.startup-loading-card{
+  width:min(92vw,360px);
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  text-align:center;
+  gap:12px;
+  padding:32px 26px;
+  border:1px solid rgba(255,255,255,.12);
+  border-radius:24px;
+  background:rgba(255,255,255,.06);
+  box-shadow:0 24px 70px rgba(0,0,0,.28);
+  color:#fff;
+  backdrop-filter:blur(10px);
+}
+.startup-loading-card strong{font-family:Manrope,Inter,sans-serif;font-size:20px}
+.startup-loading-card span{max-width:280px;color:#aebdcb;font-size:12px;line-height:1.5}
+.startup-brand-mark{width:58px;height:58px;border-radius:18px;font-size:19px}
+.startup-spinner{
+  width:30px;
+  height:30px;
+  border:3px solid rgba(255,255,255,.16);
+  border-top-color:#2dd4bf;
+  border-radius:50%;
+  animation:pbysStartupSpin .75s linear infinite;
+}
+@keyframes pbysStartupSpin{to{transform:rotate(360deg)}}
+
+/* V9.3.1 — Bugünkü detayda personeller kesin olarak tek sütun, alt alta.
+   Eski .attendance-group>div flex kuralını burada daha yüksek özgüllükle eziyoruz. */
+.attendance-group>.attendance-name-list{
+  display:grid;
+  grid-template-columns:1fr;
+  align-items:stretch;
+  justify-content:stretch;
+  gap:0;
+  width:100%;
+  margin-top:11px;
+}
+.attendance-group>.attendance-name-list>.attendance-name-line{
+  display:block;
+  width:100%;
+  padding:8px 0;
+  border-bottom:1px dashed #e8edf3;
+  line-height:1.4;
+}
+.attendance-group>.attendance-name-list>.attendance-name-line:first-child{padding-top:2px}
+.attendance-group>.attendance-name-list>.attendance-name-line:last-child{border-bottom:0;padding-bottom:0}
+.attendance-group>.attendance-name-list>.attendance-name-line>strong,
+.attendance-group>.attendance-name-list>.attendance-name-line>span,
+.attendance-group>.attendance-name-list>.attendance-name-line>small{display:block}
+.attendance-group>.attendance-name-list>.attendance-name-line>span,
+.attendance-group>.attendance-name-list>.attendance-name-line>small{margin-top:2px}
+
+
+/* PBYS V9.3.2 — faaliyet kartına tıklayınca detay penceresi */
+.activity-row-clickable{cursor:pointer;transition:background .16s ease,box-shadow .16s ease}
+.activity-row-clickable:hover{background:#f8fffd}
+.activity-row-clickable:focus-visible{outline:2px solid #14b8a6;outline-offset:-2px}
+.activity-detail{display:grid;gap:16px}
+.activity-detail-title{padding:14px 16px;border:1px solid #dbe6ea;border-radius:14px;background:linear-gradient(135deg,#f8fafc,#f0fdfa)}
+.activity-detail-title strong{font-size:18px;line-height:1.35;color:#0f172a}
+.activity-detail-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.activity-detail-grid>div,.activity-detail-note{padding:12px 14px;border:1px solid #e2e8f0;border-radius:12px;background:#fff}
+.activity-detail-grid span,.activity-detail-note>span{display:block;margin-bottom:5px;font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#64748b}
+.activity-detail-grid strong{display:block;font-size:13px;line-height:1.45;color:#1e293b}
+.activity-detail-wide{grid-column:1/-1}
+.activity-detail-note p{margin:0;font-size:13px;line-height:1.65;color:#334155;overflow-wrap:anywhere}
+.activity-detail-note.empty-note p{color:#94a3b8;font-style:italic}
+@media(max-width:520px){.activity-detail-grid{grid-template-columns:1fr}.activity-detail-wide{grid-column:auto}.activity-detail-title strong{font-size:16px}}
