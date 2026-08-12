@@ -264,7 +264,7 @@ function notice(title, sub) { return `<div class="quick-item"><div><strong>${tit
 
 async function registerNotificationWorker() {
   if (!('serviceWorker' in navigator) || !window.isSecureContext) return null;
-  try { return await navigator.serviceWorker.register('./sw.js?v=9.3.4'); }
+  try { return await navigator.serviceWorker.register('./sw.js?v=9.3.6'); }
   catch (error) { console.warn('Bildirim service worker kaydı yapılamadı:', error); return null; }
 }
 async function requestSiteNotifications() {
@@ -1165,8 +1165,9 @@ function renderDashboard() {
 
 function renderMembers() {
   if (!hasPermission('personnel.view')) return goPage('dashboard');
-  const pending = db.users.filter(u => !u.approved && !u.rejected);
-  const active = approvedUsers();
+  const trNameSort = (a, b) => String(a?.name || '').localeCompare(String(b?.name || ''), 'tr-TR', { sensitivity: 'base' });
+  const pending = db.users.filter(u => !u.approved && !u.rejected).slice().sort(trNameSort);
+  const active = approvedUsers().slice().sort(trNameSort);
   document.getElementById('pageContent').innerHTML = `
     <div class="grid grid-3">
       ${metric('👥', 'Toplam kayıt', db.users.length, 'Tüm kullanıcılar')}
@@ -1176,12 +1177,12 @@ function renderMembers() {
     <div class="card section-gap"><div class="card-header"><div><h3>Onay bekleyen üyelikler</h3><p>Tek giriş ekranından yapılan kayıtlar</p></div></div>
       ${pending.length ? `<div class="table-wrap"><table><thead><tr><th>Personel</th><th>Telefon</th><th>Görev</th><th>İşlem</th></tr></thead><tbody>${pending.map(u => `<tr><td><strong>${escapeHtml(u.name)}</strong></td><td>${u.phone}</td><td>${escapeHtml(u.title)}</td><td>${isAdmin() ? `<button class="btn btn-success btn-sm" onclick="approveMember(${u.id})">Onayla</button> <button class="btn btn-danger btn-sm" onclick="rejectMember(${u.id})">Reddet</button>` : 'Admin onayı bekleniyor'}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">Onay bekleyen üyelik bulunmuyor.</div>'}
     </div>
-    <div class="card section-gap"><div class="card-header"><div><h3>Tüm aktif personeller</h3><p>Personel bilgileri, izin geçmişi ve yetkiler tek noktadan yönetilir.</p></div>${isAdmin() ? '<button class="btn btn-primary btn-sm" onclick="newMemberModal()">Personel Ekle</button>' : ''}</div>
-      <div class="table-wrap"><table><thead><tr><th>Ad soyad</th><th>Telefon</th><th>Rol</th><th>Görev</th><th>Toplam kalan</th><th>Yıllık / Yol</th><th>İşlem</th></tr></thead><tbody>${active.map(u => `<tr><td><button class="person-link" onclick="openPersonnelLeaves(${u.id})">${escapeHtml(u.name)}</button></td><td>${u.phone}</td><td>${escapeHtml(userRoleLabels(u))}</td><td>${escapeHtml(u.title)}</td><td><strong>${getTotalLeaveRemaining(u)} gün</strong></td><td>${getRemainingLeave(u)} / ${getRoadRemaining(u)} gün</td><td>
+    <div class="card section-gap members-card"><div class="card-header"><div><h3>Tüm aktif personeller</h3><p>Personel bilgileri, izin geçmişi ve yetkiler tek noktadan yönetilir. Liste A-Z sıralıdır.</p></div>${isAdmin() ? '<button class="btn btn-primary btn-sm" onclick="newMemberModal()">Personel Ekle</button>' : ''}</div>
+      <div class="table-wrap members-table-wrap"><table class="members-table"><thead><tr><th>Ad soyad</th><th>Telefon</th><th>Rol</th><th>Görev</th><th>Toplam kalan</th><th>Yıllık / Yol</th><th>İşlem</th></tr></thead><tbody>${active.map(u => `<tr><td><button class="person-link" onclick="openPersonnelLeaves(${u.id})">${escapeHtml(u.name)}</button></td><td>${u.phone}</td><td>${escapeHtml(userRoleLabels(u))}</td><td>${escapeHtml(u.title)}</td><td><strong>${getTotalLeaveRemaining(u)} gün</strong></td><td>${getRemainingLeave(u)} / ${getRoadRemaining(u)} gün</td><td><div class="member-actions">
         <button class="btn btn-secondary btn-sm" onclick="openPersonnelLeaves(${u.id})">İzinleri</button>
         ${(isAdmin() || hasPermission('leave.manage')) ? `<button class="btn btn-secondary btn-sm" onclick="editMemberModal(${u.id})">Bilgileri Düzenle</button>` : ''}
-        ${isAdmin() ? `<button class="btn btn-warning btn-sm" onclick="adminResetPasswordModal(${u.id})">Şifre Sıfırla</button> <button class="btn btn-primary btn-sm" onclick="roleModal(${u.id})">Rol / Yetki</button> <button class="btn btn-danger btn-sm" onclick="deletePersonnel(${u.id})">Personeli Sil</button>` : ''}
-      </td></tr>`).join('')}</tbody></table></div>
+        ${isAdmin() ? `<button class="btn btn-warning btn-sm" onclick="adminResetPasswordModal(${u.id})">Şifre Sıfırla</button><button class="btn btn-primary btn-sm" onclick="roleModal(${u.id})">Rol / Yetki</button><button class="btn btn-danger btn-sm" onclick="deletePersonnel(${u.id})">Personeli Sil</button>` : ''}
+      </div></td></tr>`).join('')}</tbody></table></div>
     </div>`;
 }
 function approveMember(id) { if (!isAdmin()) return; const u = getUser(id); if (u) { u.approved = true; u.rejected = false; saveDB(); renderMembers(); toast('Üyelik onaylandı.'); } }
@@ -1745,6 +1746,24 @@ function cookMealStats(date, meal) {
   const groups = getMealStatusGroups(date, meal);
   return { prepared: groups.yes.length + groups.duty.length, yes: groups.yes.length, duty: groups.duty.length, no: groups.no.length, leave: groups.leave.length, total: approvedUsers().length };
 }
+function cookAttendanceSummary(date) {
+  const summary = { total: 0 };
+  approvedUsers().forEach(user => {
+    const attendance = attendanceForUserDate(user.id, date);
+    summary.total++;
+    summary[attendance.status] = (summary[attendance.status] || 0) + 1;
+  });
+  summary.annualLeave = Number(summary.annual_leave || 0);
+  summary.medical = Number(summary.medical || 0);
+  summary.dutyAway = Number(summary.duty || 0) + Number(summary.temporary_duty || 0) + Number(summary.course || 0) + Number(summary.referral || 0);
+  summary.otherLeave = Number(summary.excuse_leave || 0) + Number(summary.road_leave || 0);
+  return summary;
+}
+function cookPersonnelStatusCell(userId, date) {
+  const attendance = attendanceForUserDate(userId, date);
+  const source = attendance.source === 'leave' ? 'İzin sistemi' : attendance.source === 'manual' ? 'Yoklama' : 'Varsayılan';
+  return `<div class="cook-attendance-cell">${attendanceBadge(attendance.status)}${attendance.location ? `<span class="cook-attendance-location">📍 ${escapeHtml(attendance.location)}</span>` : ''}<small>${source}</small></div>`;
+}
 function changeCookDate(delta) {
   cookDateCursor = addDays(cookDateCursor, delta);
   renderCookDashboard();
@@ -1777,12 +1796,13 @@ function renderCookDashboard() {
   if (!hasCookPermission()) return goPage('dashboard');
   const date = toISO(cookDateCursor);
   const stats = ['breakfast', 'dinner'].map(meal => cookMealStats(date, meal));
+  const attendanceStats = cookAttendanceSummary(date);
   const totalPrepared = stats.reduce((sum, x) => sum + x.prepared, 0);
   const totalDuty = stats.reduce((sum, x) => sum + x.duty, 0);
   const totalLeave = stats.reduce((sum, x) => sum + x.leave, 0);
   document.getElementById('pageContent').innerHTML = `
     <div class="kitchen-topbar">
-      <div><span class="kitchen-eyebrow">GÜNLÜK MUTFAK PLANI</span><h2>${formatDayDate(date)}</h2><p>Tercih yapmayan personel varsayılan olarak yiyecek kabul edilir; Görevdeyim / Ayır da hazırlanacak sayıya dahildir.</p></div>
+      <div><span class="kitchen-eyebrow">GÜNLÜK MUTFAK PLANI</span><h2>${formatDayDate(date)}</h2><p>Yemek tercihlerinin yanında yoklama ve izin kayıtları da okunur. Böylece aşçı yıllık izin, rapor, görev ve benzeri personel durumlarını aynı ekranda görür.</p></div>
       <div class="calendar-actions kitchen-date-actions"><button class="btn btn-secondary btn-sm" onclick="changeCookDate(-1)">‹ Önceki Gün</button><button class="btn btn-secondary btn-sm" onclick="goTodayCookDate()">Bugün</button><input type="date" value="${date}" onchange="setCookDate(this.value)" aria-label="Mutfak tarihi"><button class="btn btn-primary btn-sm" onclick="changeCookDate(1)">Sonraki Gün ›</button></div>
     </div>
     <div class="grid grid-4 section-gap kitchen-overview">
@@ -1791,9 +1811,15 @@ function renderCookDashboard() {
       ${metric('👥', 'Aktif personel', approvedUsers().length + ' kişi', 'Her öğün için değerlendirilen')}
       ${metric('🏖️', 'Yıllık izin düşümü', totalLeave + ' öğün', 'Onaylı yıllık izin nedeniyle hazırlanmayacak')}
     </div>
+    <div class="cook-personnel-status-strip section-gap">
+      <div><span>🏖️ Yıllık izinli</span><strong>${attendanceStats.annualLeave} kişi</strong></div>
+      <div><span>🏥 Raporlu / İstirahatli</span><strong>${attendanceStats.medical} kişi</strong></div>
+      <div><span>📍 Görev / Geçici / Kurs / Sevk</span><strong>${attendanceStats.dutyAway} kişi</strong></div>
+      <div><span>📅 Mazeret / Yol izni</span><strong>${attendanceStats.otherLeave} kişi</strong></div>
+    </div>
     <div class="kitchen-meals section-gap">${['breakfast', 'dinner'].map(meal => kitchenMealCard(date, meal)).join('')}</div>
-    <div class="card section-gap cook-personnel-meal-list"><div class="card-header"><div><h3>Tüm personel yemek durumu</h3><p>Aşçı rolündeki kullanıcı, seçili tarih için tüm aktif personelin Sabah ve Akşam tercihini görür.</p></div><div class="toolbar-right"><button class="btn btn-secondary btn-sm" onclick="renderCookDashboard()">↻ Yenile</button></div></div>
-      <div class="table-wrap"><table><thead><tr><th>Personel</th><th>Görev / Rütbe</th><th>Sabah</th><th>Akşam</th></tr></thead><tbody>${approvedUsers().map(user => `<tr><td><strong>${escapeHtml(user.name)}</strong></td><td>${escapeHtml(user.title || '—')}</td><td>${mealStatusChip(effectiveMealStatus(user.id,date,'breakfast'))}</td><td>${mealStatusChip(effectiveMealStatus(user.id,date,'dinner'))}</td></tr>`).join('')}</tbody></table></div>
+    <div class="card section-gap cook-personnel-meal-list"><div class="card-header"><div><h3>Tüm personel yemek ve günlük durum listesi</h3><p>Sabah-Akşam yemek tercihi ile yıllık izin, rapor, görev, kurs ve diğer yoklama durumları birlikte gösterilir.</p></div><div class="toolbar-right"><button class="btn btn-secondary btn-sm" onclick="renderCookDashboard()">↻ Yenile</button></div></div>
+      <div class="table-wrap"><table><thead><tr><th>Personel</th><th>Görev / Rütbe</th><th>Personel Durumu</th><th>Sabah</th><th>Akşam</th></tr></thead><tbody>${approvedUsers().map(user => `<tr><td><strong>${escapeHtml(user.name)}</strong></td><td>${escapeHtml(user.title || '—')}</td><td>${cookPersonnelStatusCell(user.id,date)}</td><td>${mealStatusChip(effectiveMealStatus(user.id,date,'breakfast'))}</td><td>${mealStatusChip(effectiveMealStatus(user.id,date,'dinner'))}</td></tr>`).join('')}</tbody></table></div>
     </div>
     <div class="card section-gap"><div class="card-header"><div><h3>Günlük hazırlık özeti</h3><p>Aşçının hızlı kontrol listesi</p></div><div class="toolbar-right"><button class="btn btn-secondary btn-sm" onclick="renderCookDashboard()">↻ Yenile</button><button class="btn btn-secondary btn-sm" onclick="window.print()">Yazdır</button></div></div>
       <div class="table-wrap"><table class="kitchen-summary-table"><thead><tr><th>Öğün</th><th>Hazırlanacak</th><th>Yerinde yiyecek</th><th>Görevde / Ayrılacak</th><th>Yemeyecek</th><th>Yıllık izin</th><th>Liste</th></tr></thead><tbody>${['breakfast','dinner'].map(meal => { const x = cookMealStats(date, meal); return `<tr><td><strong>${mealNames[meal]}</strong></td><td><span class="kitchen-table-total">${x.prepared}</span></td><td>${x.yes}</td><td>${x.duty}</td><td>${x.no}</td><td>${x.leave}</td><td><button class="btn btn-secondary btn-sm" onclick="openCookMealDetail('${date}','${meal}')">İsimleri Gör</button></td></tr>`; }).join('')}</tbody></table></div>
@@ -1802,7 +1828,7 @@ function renderCookDashboard() {
 function openCookMealDetail(date, meal) {
   if (!hasCookPermission()) return;
   const groups = getMealStatusGroups(date, meal);
-  const groupBlock = (title, users, cls) => `<section class="kitchen-name-group ${cls}"><div><strong>${title}</strong><span>${users.length} kişi</span></div>${users.length ? `<ul>${users.map(user => `<li>${escapeHtml(user.name)}<small>${escapeHtml(user.title || '')}</small></li>`).join('')}</ul>` : '<p>Personel bulunmuyor.</p>'}</section>`;
+  const groupBlock = (title, users, cls) => `<section class="kitchen-name-group ${cls}"><div><strong>${title}</strong><span>${users.length} kişi</span></div>${users.length ? `<ul>${users.map(user => { const attendance = attendanceForUserDate(user.id, date); return `<li>${escapeHtml(user.name)}<small>${escapeHtml(user.title || '')} · ${escapeHtml(attendanceStatusMeta(attendance.status).label)}</small></li>`; }).join('')}</ul>` : '<p>Personel bulunmuyor.</p>'}</section>`;
   showModal(`${formatDayDate(date)} · ${mealNames[meal]}`, `<div class="kitchen-detail-summary"><strong>${groups.yes.length + groups.duty.length}</strong><span>toplam yemek hazırlanacak</span></div><div class="kitchen-name-groups">${groupBlock('Yerinde yiyecek', groups.yes, 'yes')}${groupBlock('Görevde / Ayrılacak', groups.duty, 'duty')}${groupBlock('Yemeyecek', groups.no, 'no')}${groupBlock('Yıllık izin / Tabldot dışı', groups.leave, 'missing')}</div>`);
 }
 
