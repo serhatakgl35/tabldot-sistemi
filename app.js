@@ -2160,41 +2160,44 @@ function mergeCookKitchenSnapshot(snapshot) {
 
   // Approved users: merge fresh Firestore documents without deleting unrelated local entries.
   const existing = new Map((db.users || []).map(u => [String(u.uid || u.id), u]));
-  (snapshot.users || []).forEach(raw => {
-    const cleanUser = { ...raw };
-    delete cleanUser._docId;
-    const key = String(cleanUser.uid || cleanUser.id);
-    existing.set(key, { ...(existing.get(key) || {}), ...cleanUser });
-  });
-  db.users = [...existing.values()];
+  if (Array.isArray(snapshot.users)) {
+    snapshot.users.forEach(raw => {
+      const cleanUser = { ...raw };
+      delete cleanUser._docId;
+      const key = String(cleanUser.uid || cleanUser.id);
+      existing.set(key, { ...(existing.get(key) || {}), ...cleanUser });
+    });
+    db.users = [...existing.values()];
+  }
 
-  // These two collections are the source of daily personnel status.
-  db.leaveRequests = (snapshot.leaveRequests || []).map(x => {
-    const y = { ...x };
-    delete y._docId;
-    return y;
-  });
-  db.attendance = (snapshot.attendance || []).map(x => {
-    const y = { ...x };
-    delete y._docId;
-    return y;
-  });
+  // Yalnız başarılı okuma varsa koleksiyonu değiştir; hata varsa mevcut veri korunur.
+  if (Array.isArray(snapshot.leaveRequests)) {
+    db.leaveRequests = snapshot.leaveRequests.map(x => {
+      const y = { ...x }; delete y._docId; return y;
+    });
+  }
+  if (Array.isArray(snapshot.attendance)) {
+    db.attendance = snapshot.attendance.map(x => {
+      const y = { ...x }; delete y._docId; return y;
+    });
+  }
 
-  // Replace only the selected day's meal choices with fresh Firestore values.
   const date = snapshot.date;
-  approvedUsers().forEach(user => {
-    if (db.mealSelections?.[user.id]) delete db.mealSelections[user.id][date];
-    if (db.mealSelections?.[String(user.id)]) delete db.mealSelections[String(user.id)][date];
-  });
-  (snapshot.mealChoices || []).forEach(choice => {
-    const uid = choice.userId;
-    db.mealSelections ||= {};
-    db.mealSelections[uid] ||= {};
-    db.mealSelections[uid][date] = {
-      breakfast: choice.breakfast || '',
-      dinner: choice.dinner || ''
-    };
-  });
+  if (Array.isArray(snapshot.mealChoices)) {
+    approvedUsers().forEach(user => {
+      if (db.mealSelections?.[user.id]) delete db.mealSelections[user.id][date];
+      if (db.mealSelections?.[String(user.id)]) delete db.mealSelections[String(user.id)][date];
+    });
+    snapshot.mealChoices.forEach(choice => {
+      const uid = choice.userId;
+      db.mealSelections ||= {};
+      db.mealSelections[uid] ||= {};
+      db.mealSelections[uid][date] = {
+        breakfast: choice.breakfast || '',
+        dinner: choice.dinner || ''
+      };
+    });
+  }
 
   cookLastCloudSyncAt = snapshot.fetchedAt || new Date().toISOString();
   try { localStorage.setItem(APP_KEY, JSON.stringify(db)); } catch (_) {}
@@ -2207,9 +2210,22 @@ async function syncCookKitchenData(date, notify = false) {
     setCloudStatus('', 'Aşçı verileri güncelleniyor');
     const snapshot = await window.FirebaseBridge.loadKitchenSnapshot(date);
     mergeCookKitchenSnapshot(snapshot);
-    setCloudStatus('online', 'Firestore bağlı');
-    if (notify) toast('Aşçı personel durumu Firestore’dan yenilendi.');
-    return true;
+
+    const errors = Array.isArray(snapshot.errors) ? snapshot.errors : [];
+    const criticalErrors = errors.filter(x => ['İzin / rapor','Yoklama'].includes(x.label));
+    if (criticalErrors.length) {
+      const detail = criticalErrors.map(x => `${x.label}: ${x.code}`).join(' · ');
+      setCloudStatus('offline', `Aşçı veri eksik: ${detail}`);
+      toast(`Aşçı verisinin bir bölümü okunamadı: ${detail}`);
+    } else if (errors.length) {
+      const detail = errors.map(x => x.label).join(', ');
+      setCloudStatus('online', `Firestore bağlı · ${detail} geçici okunamadı`);
+      if (notify) toast(`Personel durumları yenilendi. Geçici okunamayan bölüm: ${detail}`);
+    } else {
+      setCloudStatus('online', 'Firestore bağlı');
+      if (notify) toast('Aşçı personel durumu Firestore’dan yenilendi.');
+    }
+    return criticalErrors.length === 0;
   } catch (error) {
     console.error('Aşçı canlı veri yenileme hatası:', error);
     setCloudStatus('offline', 'Aşçı veri erişim hatası');
