@@ -1,0 +1,37 @@
+PBYS V9.3.13 — TEK PERSONEL DURUMU KAYNAĞI
+
+BU SÜRÜMDE ASIL MANTIK DEĞİŞTİ:
+
+Önceden:
+- Üstteki "Yıllık izinli" sayısı attendanceForUserDate() ile hesaplanıyordu.
+- Yemek isim listesi ise izin kayıtlarını ayrıca tarıyordu.
+Bu yüzden iki bölüm farklı sonuç verebiliyordu.
+
+Artık:
+- Üst personel durumu
+- Sabah/Akşam isim listesi
+- Yıllık izin / Tabldot dışı grubu
+- Tabldot mali düşümü
+- Dönem izin raporu
+
+HEPSİ attendanceForUserDate(userId, date) sonucunu kullanır.
+
+KESİN KURAL:
+attendanceForUserDate(...).status === "annual_leave" ise personel o gün yıllık izinlidir ve
+Yıllık İzin / Tabldot dışı bölümüne gider.
+
+attendanceForUserDate şunları dikkate alır:
+- El ile girilmiş personel/yoklama durumu
+- approved veya report durumundaki izin kayıtları
+
+Şunlar yıllık izin oluşturmaz:
+- pending talep
+- rejected talep
+
+YÜKLEME:
+Sadece index.html ve app.js yüklenmesi yeterlidir.
+firebase.js ve firestore.rules değişmedi.
+
+Vercel Ready sonrasında telefon/PC'de uygulamayı tamamen kapatıp yeniden açın.
+İsim listesindeki izinli kişilerin altında ayrıca "İzin sistemi" veya "Personel durumu"
+kaynağı gösterilir.
