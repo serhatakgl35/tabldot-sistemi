@@ -1386,3 +1386,36 @@ input:hover,select:hover,textarea:hover{border-color:#cfd8e3}input:focus,select:
   .members-card .card-header{align-items:flex-start}
   .member-actions{display:grid;grid-template-columns:repeat(2,max-content);gap:5px}
 }
+
+
+/* PBYS V9.3.8 — İzin takvimi mobil görünüm */
+.leave-calendar-card{overflow:hidden}
+.leave-calendar-card .card-body{min-width:0;overflow:hidden}
+.leave-calendar-card .calendar{width:100%;max-width:100%;grid-template-columns:repeat(7,minmax(0,1fr));}
+.leave-calendar-card .calendar-head,
+.leave-calendar-card .calendar-day{min-width:0}
+.leave-calendar-card .calendar-day{overflow:hidden}
+.leave-calendar-card .day-num{font-weight:800}
+.leave-calendar-card .calendar-event{max-width:100%;min-width:0}
+.calendar-more{display:block;width:100%;margin-top:3px;padding:2px 3px;border:0;background:transparent;color:#0f766e;font-size:9px;font-weight:800;text-align:center;cursor:pointer}
+
+@media(max-width:620px){
+  .leave-calendar-card .card-header{padding:14px 14px 12px}
+  .leave-calendar-card .calendar-toolbar{gap:10px}
+  .leave-calendar-card .calendar-actions{display:grid;grid-template-columns:1.15fr .8fr 1.15fr;gap:6px;width:100%;flex-wrap:nowrap}
+  .leave-calendar-card .calendar-actions .btn{width:100%;min-width:0;padding:9px 5px;font-size:10px;white-space:nowrap}
+  .leave-calendar-card .card-body{padding:10px!important}
+  .leave-calendar-card .calendar{border-radius:13px}
+  .leave-calendar-card .calendar-head{padding:8px 1px;font-size:9px;line-height:1}
+  .leave-calendar-card .calendar-day{min-height:76px;padding:5px 3px}
+  .leave-calendar-card .day-num{font-size:11px;line-height:1;margin-bottom:4px;text-align:center}
+  .leave-calendar-card .calendar-event{margin-top:3px;padding:4px 2px;border-radius:6px;font-size:7.5px;line-height:1.15;text-align:center}
+  .leave-calendar-card .calendar-more{font-size:8px;padding:2px 0}
+}
+@media(max-width:390px){
+  .leave-calendar-card .card-body{padding:8px!important}
+  .leave-calendar-card .calendar-head{font-size:8px}
+  .leave-calendar-card .calendar-day{min-height:70px;padding:4px 2px}
+  .leave-calendar-card .day-num{font-size:10px}
+  .leave-calendar-card .calendar-event{font-size:7px;padding:3px 1px}
+}
