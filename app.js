@@ -223,32 +223,6 @@ function canManageLeavePreferences() { return hasPermission('leave.preference.ma
 function userRoleLabels(user = currentUser) { return userRoles(user).map(r => roleNames[r] || r).join(' + '); }
 function logAudit(action, details) { db.auditLogs ||= []; db.auditLogs.unshift({ id: Date.now() + Math.random(), at: new Date().toISOString(), userId: currentUser?.id || null, action, details }); db.auditLogs = db.auditLogs.slice(0, 500); }
 function approvedUsers() { return db.users.filter(u => u.approved && !u.rejected); }
-function sortUsersAZ(users) {
-  return [...(users || [])].sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || ''), 'tr-TR', { sensitivity: 'base' }));
-}
-function approvedUsersAZ() { return sortUsersAZ(approvedUsers()); }
-function normalizeFilterText(value) {
-  return String(value ?? '')
-    .toLocaleLowerCase('tr-TR')
-    .replace(/ı/g, 'i').replace(/ç/g, 'c').replace(/ğ/g, 'g').replace(/ö/g, 'o').replace(/ş/g, 's').replace(/ü/g, 'u')
-    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-    .replace(/\s+/g, ' ').trim();
-}
-function filterSearchTargets(input, targetSelector, groupSelector = '') {
-  const query = normalizeFilterText(input?.value || '');
-  const targets = [...document.querySelectorAll(targetSelector)];
-  targets.forEach(el => {
-    const haystack = normalizeFilterText(el.dataset.search || el.textContent || '');
-    el.classList.toggle('search-filter-hidden', Boolean(query) && !haystack.includes(query));
-  });
-  if (groupSelector) {
-    document.querySelectorAll(groupSelector).forEach(group => {
-      const children = [...group.querySelectorAll(targetSelector.split(' ').pop())];
-      if (!children.length) return;
-      group.classList.toggle('search-filter-hidden', !children.some(el => !el.classList.contains('search-filter-hidden')));
-    });
-  }
-}
 function planningUsers() { return approvedUsers(); }
 
 function toast(message) {
@@ -290,7 +264,7 @@ function notice(title, sub) { return `<div class="quick-item"><div><strong>${tit
 
 async function registerNotificationWorker() {
   if (!('serviceWorker' in navigator) || !window.isSecureContext) return null;
-  try { return await navigator.serviceWorker.register('./sw.js?v=9.4.2'); }
+  try { return await navigator.serviceWorker.register('./sw.js?v=9.3.7'); }
   catch (error) { console.warn('Bildirim service worker kaydı yapılamadı:', error); return null; }
 }
 async function requestSiteNotifications() {
@@ -861,50 +835,10 @@ function canFitAnnualLeaveEntitlement(user, requestedDays, excludeId = null) {
   const already = Math.max(0, Number(user.usedLeave || 0)) + Math.max(0, Number(user.usedRoadLeave || 0)) + getApprovedLeaveEntitlementDays(user.id, excludeId);
   return already + Number(requestedDays || 0) <= getTotalLeaveEntitlement(user);
 }
-function normalizeRecordDate(value) {
-  if (!value) return '';
-  if (typeof value === 'string') return value.slice(0, 10);
-  if (typeof value?.toDate === 'function') return toISO(value.toDate());
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? '' : toISO(parsed);
-}
-function isApprovedLeaveStatus(status) {
-  const value = String(status || '').trim().toLocaleLowerCase('tr-TR');
-  return ['approved', 'onaylandı', 'onaylandi', 'onaylı', 'onayli'].includes(value);
-}
-function isAnnualLeaveType(type) {
-  const value = String(type || '').trim().toLocaleLowerCase('tr-TR');
-  return value === 'yıllık izin' || value === 'yillik izin' || value === 'annual_leave' || value === 'annual leave';
-}
-function approvedAnnualLeaveForDate(userId, date) {
-  const numericUserId = Number(userId);
-  const target = normalizeRecordDate(date);
-  if (!target || !Number.isFinite(numericUserId)) return null;
-  return (db.leaveRequests || []).find(x => {
-    if (Number(x.userId) !== numericUserId) return false;
-    if (!isApprovedLeaveStatus(x.status) || !isAnnualLeaveType(x.type)) return false;
-    const start = normalizeRecordDate(x.start);
-    const end = normalizeRecordDate(x.end);
-    return Boolean(start && end && start <= target && end >= target);
-  }) || null;
-}
 function isApprovedAnnualLeaveOnDate(userId, date) {
-  if (approvedAnnualLeaveForDate(userId, date)) return true;
-  // Eski/veri aktarımı yapılmış kayıtlarda yıllık izin doğrudan yoklamaya
-  // işlenmiş olabilir. Aşçı ekranı bu kaydı da yıllık izin olarak kabul eder.
-  return (db.attendance || []).some(x => {
-    if (Number(x.userId) !== Number(userId)) return false;
-    if (String(x.status || '').trim().toLocaleLowerCase('tr-TR') !== 'annual_leave') return false;
-    const start = normalizeRecordDate(x.start || x.date);
-    const end = normalizeRecordDate(x.end || x.date || x.start);
-    const target = normalizeRecordDate(date);
-    return Boolean(start && end && target && start <= target && end >= target);
-  });
+  return db.leaveRequests.some(x => x.userId === Number(userId) && x.status === 'approved' && x.type === 'Yıllık İzin' && x.start <= date && x.end >= date);
 }
 function effectiveMealStatus(userId, date, meal) {
-  // Kesin öncelik: yıllık izin > açık yemek tercihi > varsayılan yiyecek.
-  // Böylece izinli personel daha önce “Yemeyeceğim” seçmiş olsa bile
-  // yanlışlıkla Yemeyecek grubuna düşmez.
   if (isApprovedAnnualLeaveOnDate(userId, date)) return 'leave';
   const explicit = getMealDay(userId, date)[meal];
   if (explicit === 'no' || explicit === 'duty') return explicit;
@@ -1443,25 +1377,9 @@ function attendanceStatusFromLeave(req) {
 }
 const attendancePlaceSuggestions = ['Karakol', 'Yemekhane', 'Nizamiye', 'İdari İşler', 'Devriye', 'Araç Görevi', 'Dış Görev'];
 function attendanceForUserDate(userId, date) {
-  // Onaylı yıllık izin, manuel yoklama kaydından da önceliklidir.
-  // Aşçı ekranındaki yıllık izin sayacı ve yemek düşümü aynı kaynaktan beslenir.
-  const annualLeave = approvedAnnualLeaveForDate(userId, date);
-  if (annualLeave) return { status: 'annual_leave', task: '', note: annualLeave.type || 'Yıllık İzin', location: '', source: 'leave', record: annualLeave };
-
-  const manual = (db.attendance || [])
-    .filter(x => Number(x.userId) === Number(userId) && normalizeRecordDate(x.start || x.date) <= normalizeRecordDate(date) && normalizeRecordDate(x.end || x.date || x.start) >= normalizeRecordDate(date))
-    .sort((a,b) => Number(b.id || 0) - Number(a.id || 0))[0];
+  const manual = (db.attendance || []).filter(x => x.userId === Number(userId) && x.start <= date && x.end >= date).sort((a,b) => b.id - a.id)[0];
   if (manual) return { status: manual.status, task: manual.task || manual.note || '', note: manual.note || '', location: manual.location || '', source: 'manual', record: manual };
-
-  const leave = (db.leaveRequests || []).find(x => {
-    if (Number(x.userId) !== Number(userId)) return false;
-    const status = String(x.status || '').trim().toLocaleLowerCase('tr-TR');
-    if (!(isApprovedLeaveStatus(status) || status === 'report')) return false;
-    const start = normalizeRecordDate(x.start);
-    const end = normalizeRecordDate(x.end);
-    const target = normalizeRecordDate(date);
-    return Boolean(start && end && target && start <= target && end >= target);
-  });
+  const leave = (db.leaveRequests || []).find(x => x.userId === Number(userId) && ['approved','report'].includes(x.status) && x.start <= date && x.end >= date);
   if (leave) return { status: attendanceStatusFromLeave(leave), task: '', note: leave.type, location: '', source: 'leave', record: leave };
   return { status: 'present', task: '', note: '', location: '', source: 'default', record: null };
 }
@@ -1547,50 +1465,42 @@ function openAttendanceHistory(userId) {
 function renderAttendanceManagement() {
   if (!hasPermission('attendance.manage')) return goPage('dashboard');
   const date=toISO(attendanceDateCursor), stats=dailyAttendanceStats(date);
-  const users=approvedUsersAZ();
+  const users=approvedUsers();
   document.getElementById('pageContent').innerHTML=`
     <div class="attendance-toolbar"><div><span class="kitchen-eyebrow">İDARİ İŞLER · GÜNLÜK YOKLAMA</span><h2>${formatDayDate(date)}</h2><p>Personel varsayılan olarak Mevcut kabul edilir. Sadece istisnaları girmeniz yeterlidir.</p></div><div class="calendar-actions"><button class="btn btn-secondary btn-sm" onclick="changeAttendanceDate(-1)">‹ Önceki Gün</button><button class="btn btn-secondary btn-sm" onclick="goTodayAttendance()">Bugün</button><input type="date" value="${date}" onchange="setAttendanceDate(this.value)"><button class="btn btn-primary btn-sm" onclick="changeAttendanceDate(1)">Sonraki Gün ›</button></div></div>
     <div class="grid grid-4 section-gap">${metric('👥','Toplam personel',stats.total+' kişi','Aktif üyeler')}${metric('✅','Mevcut',stats.present+' kişi','Varsayılan durum')}${metric('📌','Mevcut değil',stats.absent+' kişi','İzin, rapor, görev vb.')}${metric('📅','Onaylı izin',((stats.annual_leave||0)+(stats.excuse_leave||0)+(stats.road_leave||0))+' kişi','İzin sisteminden otomatik')}</div>
-    <div class="card section-gap"><div class="card-header searchable-card-header"><div><h3>Personel durumları</h3><p>İzin sistemi otomatik; idari işler ayrıca personelin bulunduğu yeri (Yemekhane, Nizamiye vb.) kaydedebilir.</p></div><label class="list-search"><span>🔎</span><input type="search" placeholder="Personel, rütbe, durum, yer veya açıklama ara" oninput="filterSearchTargets(this, '#attendanceManagementTable tbody tr')"></label></div><div class="table-wrap"><table id="attendanceManagementTable"><thead><tr><th>Personel</th><th>Rütbe / Görev</th><th>Bugünkü durum</th><th>Bulunduğu yer</th><th>Görev / Açıklama</th><th>Kaynak</th><th>Ek not</th><th>İşlem</th></tr></thead><tbody>${users.map(user=>{const a=attendanceForUserDate(user.id,date);const source=a.source==='leave'?'İzin sistemi':a.source==='manual'?'İdari işler':'Varsayılan'; const searchable=[user.name,user.title,attendanceStatusMeta(a.status).label,a.location,a.task,source,a.note].join(' ');return `<tr data-search="${escapeHtml(searchable)}"><td><button class="person-link" onclick="openAttendanceHistory(${user.id})">${escapeHtml(user.name)}</button></td><td>${escapeHtml(user.title||'')}</td><td>${attendanceBadge(a.status)}</td><td><strong>${escapeHtml(a.location||'—')}</strong></td><td>${escapeHtml(a.task||'—')}</td><td>${source}</td><td>${escapeHtml(a.note||'—')}</td><td><button class="btn btn-primary btn-sm" onclick="attendanceEditModal(${user.id})">Düzenle</button>${a.source==='manual'?` <button class="btn btn-secondary btn-sm" onclick="clearManualAttendance(${user.id})">Kaydı Kaldır</button>`:''}</td></tr>`}).join('')}</tbody></table></div></div>`;
+    <div class="card section-gap"><div class="card-header"><div><h3>Personel durumları</h3><p>İzin sistemi otomatik; idari işler ayrıca personelin bulunduğu yeri (Yemekhane, Nizamiye vb.) kaydedebilir.</p></div></div><div class="table-wrap"><table><thead><tr><th>Personel</th><th>Rütbe / Görev</th><th>Bugünkü durum</th><th>Bulunduğu yer</th><th>Görev / Açıklama</th><th>Kaynak</th><th>Ek not</th><th>İşlem</th></tr></thead><tbody>${users.map(user=>{const a=attendanceForUserDate(user.id,date);return `<tr><td><button class="person-link" onclick="openAttendanceHistory(${user.id})">${escapeHtml(user.name)}</button></td><td>${escapeHtml(user.title||'')}</td><td>${attendanceBadge(a.status)}</td><td><strong>${escapeHtml(a.location||'—')}</strong></td><td>${escapeHtml(a.task||'—')}</td><td>${a.source==='leave'?'İzin sistemi':a.source==='manual'?'İdari işler':'Varsayılan'}</td><td>${escapeHtml(a.note||'—')}</td><td><button class="btn btn-primary btn-sm" onclick="attendanceEditModal(${user.id})">Düzenle</button>${a.source==='manual'?` <button class="btn btn-secondary btn-sm" onclick="clearManualAttendance(${user.id})">Kaydı Kaldır</button>`:''}</td></tr>`}).join('')}</tbody></table></div></div>`;
 }
 function attendanceGroupHtml(date) {
   const groups={};
-  approvedUsersAZ().forEach(u=>{ const a=attendanceForUserDate(u.id,date); (groups[a.status] ||= []).push({user:u, attendance:a}); });
-  return Object.entries(attendanceStatuses).filter(([key])=>groups[key]?.length).map(([key])=>{
-    const items = groups[key].slice().sort((a,b)=>String(a.user.name||'').localeCompare(String(b.user.name||''),'tr-TR',{sensitivity:'base'}));
-    return `<div class="attendance-group">
-      <div>${attendanceBadge(key)}<strong>${items.length} kişi</strong></div>
-      <div class="attendance-name-list">${items.map(x=>{
-        const searchable=[x.user.name,x.user.title,attendanceStatusMeta(key).label,x.attendance.location,x.attendance.task,x.attendance.note].join(' ');
-        return `<div class="attendance-name-line" data-search="${escapeHtml(searchable)}">
+  approvedUsers().forEach(u=>{ const a=attendanceForUserDate(u.id,date); (groups[a.status] ||= []).push({user:u, attendance:a}); });
+  return Object.entries(attendanceStatuses).filter(([key])=>groups[key]?.length).map(([key])=>`
+    <div class="attendance-group">
+      <div>${attendanceBadge(key)}<strong>${groups[key].length} kişi</strong></div>
+      <div class="attendance-name-list">${groups[key].map(x=>`
+        <div class="attendance-name-line">
           <strong>${escapeHtml(x.user.name)}</strong>
           ${x.attendance.location ? `<span>(${escapeHtml(x.attendance.location)})</span>` : ''}
           ${x.attendance.task ? `<small>— ${escapeHtml(x.attendance.task)}</small>` : ''}
-        </div>`;
-      }).join('')}</div>
-    </div>`;
-  }).join('');
+        </div>`).join('')}</div>
+    </div>`).join('');
 }
 function attendanceLocationHtml(date) {
   const groups = {};
-  approvedUsersAZ().forEach(u => {
+  approvedUsers().forEach(u => {
     const a = attendanceForUserDate(u.id, date);
     const location = String(a.location || '').trim();
     if (!location) return;
     (groups[location] ||= []).push(u);
   });
-  const entries = Object.entries(groups).sort((a,b) => a[0].localeCompare(b[0], 'tr-TR', { sensitivity:'base' }));
+  const entries = Object.entries(groups).sort((a,b) => a[0].localeCompare(b[0], 'tr'));
   if (!entries.length) return '<div class="empty">Bu tarih için konum / görev yeri kaydı girilmemiş.</div>';
-  return entries.map(([location, users]) => {
-    const sorted = sortUsersAZ(users);
-    return `<div class="attendance-group"><div><span class="attendance-badge att-present">📍 ${escapeHtml(location)}</span><strong>${sorted.length} kişi</strong></div><div class="attendance-name-list">${sorted.map(u=>`<div class="attendance-name-line" data-search="${escapeHtml([u.name,u.title,location].join(' '))}"><strong>${escapeHtml(u.name)}</strong></div>`).join('')}</div></div>`;
-  }).join('');
+  return entries.map(([location, users]) => `<div class="attendance-group"><div><span class="attendance-badge att-present">📍 ${escapeHtml(location)}</span><strong>${users.length} kişi</strong></div><div class="attendance-name-list">${users.map(u=>`<div class="attendance-name-line"><strong>${escapeHtml(u.name)}</strong></div>`).join('')}</div></div>`).join('');
 }
 function renderAttendanceOverview() {
   if (!hasPermission('attendance.view')) return goPage('dashboard');
   const date=toISO(attendanceDateCursor), stats=dailyAttendanceStats(date), week=getWeekDates(attendanceWeekCursor);
   const canEdit = hasPermission('attendance.manage');
-  const usersAZ = approvedUsersAZ();
   document.getElementById('pageContent').innerHTML=`
     <div class="attendance-toolbar"><div><span class="kitchen-eyebrow">KOMUTANLIK · PERSONEL DURUMU</span><h2>${formatDayDate(date)}</h2><p>Günlük mevcut ile haftalık personel hareketleri tek ekranda.</p></div><div class="calendar-actions"><button class="btn btn-secondary btn-sm" onclick="changeAttendanceDate(-1)">‹ Önceki Gün</button><button class="btn btn-secondary btn-sm" onclick="goTodayAttendance()">Bugün</button><input type="date" value="${date}" onchange="setAttendanceDate(this.value)"><button class="btn btn-primary btn-sm" onclick="changeAttendanceDate(1)">Sonraki Gün ›</button></div></div>
 
@@ -1602,14 +1512,15 @@ function renderAttendanceOverview() {
 
     ${attendanceMiniSummary(stats)}
 
-    <div class="card section-gap"><div class="card-header searchable-card-header"><div><h3>Bugünkü detay</h3><p>Durumlara göre isimler A-Z gösterilir; girilmişse bulunduğu yer de görünür.</p></div><label class="list-search"><span>🔎</span><input type="search" placeholder="İsim, durum veya yer ara" oninput="filterSearchTargets(this, '#attendanceGroups .attendance-name-line', '#attendanceGroups .attendance-group')"></label></div><div id="attendanceGroups" class="card-body attendance-groups">${attendanceGroupHtml(date)}</div></div>
-    <div class="card section-gap"><div class="card-header searchable-card-header"><div><h3>Bulunduğu yere göre dağılım</h3><p>Yemekhane, Nizamiye ve el ile girilen diğer görev yerleri</p></div><label class="list-search"><span>🔎</span><input type="search" placeholder="Personel veya yer ara" oninput="filterSearchTargets(this, '#attendanceLocationGroups .attendance-name-line', '#attendanceLocationGroups .attendance-group')"></label></div><div id="attendanceLocationGroups" class="card-body attendance-groups">${attendanceLocationHtml(date)}</div></div>
+    <div class="card section-gap"><div class="card-header"><div><h3>Bugünkü detay</h3><p>Durumlara göre isimler alt alta gösterilir; girilmişse bulunduğu yer de görünür.</p></div></div><div class="card-body attendance-groups">${attendanceGroupHtml(date)}</div></div>
+    <div class="card section-gap"><div class="card-header"><div><h3>Bulunduğu yere göre dağılım</h3><p>Yemekhane, Nizamiye ve el ile girilen diğer görev yerleri</p></div></div><div class="card-body attendance-groups">${attendanceLocationHtml(date)}</div></div>
 
     <div class="card section-gap">
-      <div class="card-header calendar-toolbar searchable-week-header"><div><h3>Haftalık yoklama</h3><p>${weekRangeText(attendanceWeekCursor)}${canEdit ? ' · Rozete dokunarak o günün yoklamasını düzenleyebilirsiniz.' : ''}</p></div><div class="weekly-header-tools"><label class="list-search"><span>🔎</span><input type="search" placeholder="Personel veya rütbe ara" oninput="filterSearchTargets(this, '#attendanceWeekTable tbody tr')"></label><div class="calendar-actions"><button class="btn btn-secondary btn-sm" onclick="changeAttendanceWeek(-1)">‹ Önceki Hafta</button><button class="btn btn-secondary btn-sm" onclick="attendanceWeekCursor=startOfWeek(new Date());renderAttendanceOverview()">Bu Hafta</button><button class="btn btn-primary btn-sm" onclick="changeAttendanceWeek(1)">Sonraki Hafta ›</button></div></div></div>
-      <div class="attendance-week-wrap"><table id="attendanceWeekTable" class="attendance-week-table"><thead><tr><th>Personel</th>${week.map(d=>`<th>${new Intl.DateTimeFormat('tr-TR',{weekday:'short'}).format(parseISO(d))}<small>${formatShortDate(d).slice(0,5)}</small></th>`).join('')}</tr></thead><tbody>${usersAZ.map(user=>`<tr data-search="${escapeHtml([user.name,user.title].join(' '))}"><td><button class="person-link" onclick="openAttendanceHistory(${user.id})">${escapeHtml(user.name)}</button><small class="table-sub">${escapeHtml(user.title||'')}</small></td>${week.map(d=>{const a=attendanceForUserDate(user.id,d); const content=`${attendanceBadge(a.status,true)}${a.location ? `<small class="attendance-location-mini">${escapeHtml(a.location)}</small>` : ''}${a.task ? `<small class="attendance-task-mini">${escapeHtml(a.task)}</small>` : ''}`; return `<td title="${escapeHtml(a.location || attendanceStatusMeta(a.status).label)}">${canEdit ? `<button class="attendance-cell-button" onclick="attendanceEditModal(${user.id}, '${d}')" aria-label="${escapeHtml(user.name)} ${formatShortDate(d)} yoklamasını düzenle">${content}</button>` : content}</td>`}).join('')}</tr>`).join('')}</tbody></table></div>
+      <div class="card-header calendar-toolbar"><div><h3>Haftalık yoklama</h3><p>${weekRangeText(attendanceWeekCursor)}${canEdit ? ' · Rozete dokunarak o günün yoklamasını düzenleyebilirsiniz.' : ''}</p></div><div class="calendar-actions"><button class="btn btn-secondary btn-sm" onclick="changeAttendanceWeek(-1)">‹ Önceki Hafta</button><button class="btn btn-secondary btn-sm" onclick="attendanceWeekCursor=startOfWeek(new Date());renderAttendanceOverview()">Bu Hafta</button><button class="btn btn-primary btn-sm" onclick="changeAttendanceWeek(1)">Sonraki Hafta ›</button></div></div>
+      <div class="attendance-week-wrap"><table class="attendance-week-table"><thead><tr><th>Personel</th>${week.map(d=>`<th>${new Intl.DateTimeFormat('tr-TR',{weekday:'short'}).format(parseISO(d))}<small>${formatShortDate(d).slice(0,5)}</small></th>`).join('')}</tr></thead><tbody>${approvedUsers().map(user=>`<tr><td><button class="person-link" onclick="openAttendanceHistory(${user.id})">${escapeHtml(user.name)}</button><small class="table-sub">${escapeHtml(user.title||'')}</small></td>${week.map(d=>{const a=attendanceForUserDate(user.id,d); const content=`${attendanceBadge(a.status,true)}${a.location ? `<small class="attendance-location-mini">${escapeHtml(a.location)}</small>` : ''}${a.task ? `<small class="attendance-task-mini">${escapeHtml(a.task)}</small>` : ''}`; return `<td title="${escapeHtml(a.location || attendanceStatusMeta(a.status).label)}">${canEdit ? `<button class="attendance-cell-button" onclick="attendanceEditModal(${user.id}, '${d}')" aria-label="${escapeHtml(user.name)} ${formatShortDate(d)} yoklamasını düzenle">${content}</button>` : content}</td>`}).join('')}</tr>`).join('')}</tbody></table></div>
     </div>`;
 }
+
 function getWeekDates(cursor) { return Array.from({ length: 7 }, (_, i) => toISO(addDays(startOfWeek(cursor), i))); }
 function weekRangeText(cursor) { const dates = getWeekDates(cursor); return `${formatShortDate(dates[0])} – ${formatShortDate(dates[6])}`; }
 function changeMealWeek(delta, management = false) {
@@ -1889,7 +1800,6 @@ function renderCookDashboard() {
   const totalPrepared = stats.reduce((sum, x) => sum + x.prepared, 0);
   const totalDuty = stats.reduce((sum, x) => sum + x.duty, 0);
   const totalLeave = stats.reduce((sum, x) => sum + x.leave, 0);
-  const usersAZ = approvedUsersAZ();
   document.getElementById('pageContent').innerHTML = `
     <div class="kitchen-topbar">
       <div><span class="kitchen-eyebrow">GÜNLÜK MUTFAK PLANI</span><h2>${formatDayDate(date)}</h2><p>Yemek tercihlerinin yanında yoklama ve izin kayıtları da okunur. Böylece aşçı yıllık izin, rapor, görev ve benzeri personel durumlarını aynı ekranda görür.</p></div>
@@ -1908,8 +1818,8 @@ function renderCookDashboard() {
       <div><span>📅 Mazeret / Yol izni</span><strong>${attendanceStats.otherLeave} kişi</strong></div>
     </div>
     <div class="kitchen-meals section-gap">${['breakfast', 'dinner'].map(meal => kitchenMealCard(date, meal)).join('')}</div>
-    <div class="card section-gap cook-personnel-meal-list"><div class="card-header searchable-card-header"><div><h3>Tüm personel yemek ve günlük durum listesi</h3><p>Personel A-Z sıralıdır. Sabah-Akşam yemek tercihi ile izin, rapor ve yoklama durumları birlikte gösterilir.</p></div><div class="search-actions"><label class="list-search"><span>🔎</span><input type="search" placeholder="Personel, rütbe veya durum ara" oninput="filterSearchTargets(this, '#cookPersonnelTable tbody tr')"></label><button class="btn btn-secondary btn-sm" onclick="renderCookDashboard()">↻ Yenile</button></div></div>
-      <div class="table-wrap"><table id="cookPersonnelTable"><thead><tr><th>Personel</th><th>Görev / Rütbe</th><th>Personel Durumu</th><th>Sabah</th><th>Akşam</th></tr></thead><tbody>${usersAZ.map(user => {const attendance=attendanceForUserDate(user.id,date); const searchable=[user.name,user.title,attendanceStatusMeta(attendance.status).label,attendance.location,attendance.task].join(' '); return `<tr data-search="${escapeHtml(searchable)}"><td><strong>${escapeHtml(user.name)}</strong></td><td>${escapeHtml(user.title || '—')}</td><td>${cookPersonnelStatusCell(user.id,date)}</td><td>${mealStatusChip(effectiveMealStatus(user.id,date,'breakfast'))}</td><td>${mealStatusChip(effectiveMealStatus(user.id,date,'dinner'))}</td></tr>`;}).join('')}</tbody></table></div>
+    <div class="card section-gap cook-personnel-meal-list"><div class="card-header"><div><h3>Tüm personel yemek ve günlük durum listesi</h3><p>Sabah-Akşam yemek tercihi ile yıllık izin, rapor, görev, kurs ve diğer yoklama durumları birlikte gösterilir.</p></div><div class="toolbar-right"><button class="btn btn-secondary btn-sm" onclick="renderCookDashboard()">↻ Yenile</button></div></div>
+      <div class="table-wrap"><table><thead><tr><th>Personel</th><th>Görev / Rütbe</th><th>Personel Durumu</th><th>Sabah</th><th>Akşam</th></tr></thead><tbody>${approvedUsers().map(user => `<tr><td><strong>${escapeHtml(user.name)}</strong></td><td>${escapeHtml(user.title || '—')}</td><td>${cookPersonnelStatusCell(user.id,date)}</td><td>${mealStatusChip(effectiveMealStatus(user.id,date,'breakfast'))}</td><td>${mealStatusChip(effectiveMealStatus(user.id,date,'dinner'))}</td></tr>`).join('')}</tbody></table></div>
     </div>
     <div class="card section-gap"><div class="card-header"><div><h3>Günlük hazırlık özeti</h3><p>Aşçının hızlı kontrol listesi</p></div><div class="toolbar-right"><button class="btn btn-secondary btn-sm" onclick="renderCookDashboard()">↻ Yenile</button><button class="btn btn-secondary btn-sm" onclick="window.print()">Yazdır</button></div></div>
       <div class="table-wrap"><table class="kitchen-summary-table"><thead><tr><th>Öğün</th><th>Hazırlanacak</th><th>Yerinde yiyecek</th><th>Görevde / Ayrılacak</th><th>Yemeyecek</th><th>Yıllık izin</th><th>Liste</th></tr></thead><tbody>${['breakfast','dinner'].map(meal => { const x = cookMealStats(date, meal); return `<tr><td><strong>${mealNames[meal]}</strong></td><td><span class="kitchen-table-total">${x.prepared}</span></td><td>${x.yes}</td><td>${x.duty}</td><td>${x.no}</td><td>${x.leave}</td><td><button class="btn btn-secondary btn-sm" onclick="openCookMealDetail('${date}','${meal}')">İsimleri Gör</button></td></tr>`; }).join('')}</tbody></table></div>
@@ -1918,7 +1828,7 @@ function renderCookDashboard() {
 function openCookMealDetail(date, meal) {
   if (!hasCookPermission()) return;
   const groups = getMealStatusGroups(date, meal);
-  const groupBlock = (title, users, cls) => { const sorted=sortUsersAZ(users); return `<section class="kitchen-name-group ${cls}"><div><strong>${title}</strong><span>${sorted.length} kişi</span></div>${sorted.length ? `<ul>${sorted.map(user => { const attendance = attendanceForUserDate(user.id, date); return `<li>${escapeHtml(user.name)}<small>${escapeHtml(user.title || '')} · ${escapeHtml(attendanceStatusMeta(attendance.status).label)}</small></li>`; }).join('')}</ul>` : '<p>Personel bulunmuyor.</p>'}</section>`; };
+  const groupBlock = (title, users, cls) => `<section class="kitchen-name-group ${cls}"><div><strong>${title}</strong><span>${users.length} kişi</span></div>${users.length ? `<ul>${users.map(user => { const attendance = attendanceForUserDate(user.id, date); return `<li>${escapeHtml(user.name)}<small>${escapeHtml(user.title || '')} · ${escapeHtml(attendanceStatusMeta(attendance.status).label)}</small></li>`; }).join('')}</ul>` : '<p>Personel bulunmuyor.</p>'}</section>`;
   showModal(`${formatDayDate(date)} · ${mealNames[meal]}`, `<div class="kitchen-detail-summary"><strong>${groups.yes.length + groups.duty.length}</strong><span>toplam yemek hazırlanacak</span></div><div class="kitchen-name-groups">${groupBlock('Yerinde yiyecek', groups.yes, 'yes')}${groupBlock('Görevde / Ayrılacak', groups.duty, 'duty')}${groupBlock('Yemeyecek', groups.no, 'no')}${groupBlock('Yıllık izin / Tabldot dışı', groups.leave, 'missing')}</div>`);
 }
 
@@ -2084,57 +1994,6 @@ function rejectPayment(id) {
   saveDB(); renderFinanceManagement(); toast('Ödeme bildirimi reddedildi.');
 }
 
-function leaveTypeCategory(type) {
-  const t = String(type || '').trim().toLocaleLowerCase('tr-TR');
-  if (t.includes('yıllık') || t.includes('yillik')) return 'annual';
-  if (t.includes('sağlık') || t.includes('saglik') || t.includes('rapor')) return 'health';
-  if (t.includes('mazeret')) return 'excuse';
-  if (t.includes('günübirlik') || t.includes('gunubirlik')) return 'daily';
-  if (t.includes('yol')) return 'road';
-  return 'other';
-}
-function leaveTypeCalendarClass(type) {
-  const key = leaveTypeCategory(type);
-  return key === 'annual' ? 'leave-annual' : key === 'health' ? 'leave-health' : key === 'excuse' ? 'leave-excuse' : key === 'daily' ? 'leave-daily' : key === 'road' ? 'leave-road' : 'leave-other';
-}
-function leaveTypeLegendHtml() {
-  return `<div class="leave-type-legend"><span><i class="legend-swatch leave-annual"></i>Yıllık İzin</span><span><i class="legend-swatch leave-health"></i>Sağlık Raporu</span><span><i class="legend-swatch leave-excuse"></i>Mazeret İzni</span><span><i class="legend-swatch leave-daily"></i>Günübirlik İzin</span><span><i class="legend-swatch leave-road"></i>Yol İzni</span><span><i class="legend-swatch leave-other"></i>Diğer</span></div>`;
-}
-function elapsedUsedLeaveDays(record, today = toISO(new Date())) {
-  if (!record || !(isApprovedLeaveStatus(record.status) || String(record.status || '').toLowerCase() === 'report') || !record.start || !record.end) return 0;
-  const start = normalizeRecordDate(record.start), end = normalizeRecordDate(record.end);
-  if (!start || !end || today <= start) return 0;
-  const yesterday = toISO(addDays(parseISO(today), -1));
-  const usedEnd = end < yesterday ? end : yesterday;
-  return usedEnd >= start ? daysBetween(start, usedEnd) : 0;
-}
-function personLeaveUsageSummary(user) {
-  const balance = getLeaveBreakdown(user, false);
-  const summary = { annual: balance.annualUsed, road: balance.roadUsed, health: 0, excuse: 0, daily: 0, other: 0, annualRemaining: balance.annualRemaining, roadRemaining: balance.roadRemaining };
-  (db.leaveRequests || []).filter(x => Number(x.userId) === Number(user.id)).forEach(record => {
-    const category = leaveTypeCategory(record.type);
-    if (category === 'annual' || category === 'road') return;
-    const used = elapsedUsedLeaveDays(record);
-    summary[category] = (summary[category] || 0) + used;
-  });
-  summary.allUsed = summary.annual + summary.road + summary.health + summary.excuse + summary.daily + summary.other;
-  return summary;
-}
-function personLeaveUsageHtml(user) {
-  const u = personLeaveUsageSummary(user);
-  const cards = [
-    ['📅','Kullanılan Yıllık İzin',u.annual,'Yıllık izin bakiyesinden'],
-    ['🏥','Kullanılan Sağlık Raporu',u.health,'Sağlık / rapor kayıtları'],
-    ['🗓️','Kullanılan Mazeret İzni',u.excuse,'Mazeret izinleri'],
-    ['☀️','Kullanılan Günübirlik İzin',u.daily,'Günübirlik izinler'],
-    ['🛣️','Kullanılan Yol İzni',u.road,'Yol izni bakiyesinden'],
-    ['📌','Diğer Kullanılan',u.other,'Diğer izin türleri'],
-    ['Σ','Tüm İzinlerde Kullanılan',u.allUsed,'Tüm izin türleri toplamı'],
-    ['✅','Yıllık İzin Kalan',u.annualRemaining,`${Number(user.annualAllowance ?? 30)} günlük yıllık haktan`]
-  ];
-  return `<div class="person-leave-usage section-gap"><div class="person-leave-usage-title"><h3>İzin kullanım özeti</h3><p>Kullanılmış günler izin türüne göre ayrı gösterilir. Yıllık izin bakiyesi ayrıca takip edilir.</p></div><div class="leave-usage-grid">${cards.map(([icon,label,value,sub],i)=>`<div class="leave-usage-card${i===7?' remaining':''}"><span class="leave-usage-icon">${icon}</span><div><small>${escapeHtml(label)}</small><strong>${Number(value||0)} gün</strong><em>${escapeHtml(sub)}</em></div></div>`).join('')}</div></div>`;
-}
-
 function getRemainingLeave(user) {
   return getLeaveBreakdown(user, false).annualRemaining;
 }
@@ -2161,7 +2020,7 @@ function renderLeaveManagement() {
   const monthly = db.leaveRequests.filter(x => x.start <= monthEnd && x.end >= monthStart).sort((a, b) => a.start.localeCompare(b.start));
   document.getElementById('pageContent').innerHTML = `
     <div class="grid grid-4">${metric('📅', 'Toplam izin kaydı', db.leaveRequests.length, 'Tüm dönemler')}${metric('⏳', 'Onay bekleyen', db.leaveRequests.filter(x => x.status === 'pending').length, 'Değerlendirme gerekli')}${metric('✅', 'Onaylanan', db.leaveRequests.filter(x => x.status === 'approved').length, 'Planlanan izinler')}${metric('👥', monthTitle(year, month) + ' izinli', new Set(monthly.map(x => x.userId)).size + ' kişi', 'Ay içinde izin kaydı bulunan')}</div>
-    <div class="card section-gap leave-calendar-card"><div class="card-header calendar-toolbar"><div><h3>${monthTitle(year, month)} izin takvimi</h3><p>Önceki ve gelecek aylara sınırsız geçiş yapılabilir</p></div><div class="leave-calendar-header-actions"><div class="leave-calendar-tools"><button class="btn btn-secondary btn-sm" onclick="openLeaveCalendarTab(false)">↗ Yeni Sekmede Aç</button><button class="btn btn-secondary btn-sm" onclick="openLeaveCalendarTab(true)">🖨 Yazdır</button></div><div class="calendar-actions"><button class="btn btn-secondary btn-sm" onclick="changeLeaveMonth(-1)">‹ Önceki Ay</button><button class="btn btn-secondary btn-sm" onclick="goCurrentLeaveMonth()">Bu Ay</button><button class="btn btn-primary btn-sm" onclick="changeLeaveMonth(1)">Sonraki Ay ›</button></div></div></div><div class="card-body">${calendarHtml(year, month)}</div></div>
+    <div class="card section-gap"><div class="card-header calendar-toolbar"><div><h3>${monthTitle(year, month)} izin takvimi</h3><p>Önceki ve gelecek aylara sınırsız geçiş yapılabilir</p></div><div class="calendar-actions"><button class="btn btn-secondary btn-sm" onclick="changeLeaveMonth(-1)">‹ Önceki Ay</button><button class="btn btn-secondary btn-sm" onclick="goCurrentLeaveMonth()">Bu Ay</button><button class="btn btn-primary btn-sm" onclick="changeLeaveMonth(1)">Sonraki Ay ›</button></div></div><div class="card-body">${calendarHtml(year, month)}</div></div>
     <div class="card section-gap"><div class="card-header"><div><h3>${monthTitle(year, month)} izinli personel listesi</h3><p>Gösterilen ayla kesişen bütün izinler</p></div>${hasPermission('leave.manage') ? '<button class="btn btn-secondary btn-sm" onclick="leaveModal(true)">Geçmiş İzin / Kayıt Ekle</button>' : ''}</div>${monthly.length ? leaveTable(monthly, true) : '<div class="empty">Bu ay için izin kaydı bulunmuyor.</div>'}</div>
     <div class="card section-gap"><div class="card-header"><div><h3>Tüm izin talepleri</h3><p>Personel adına tıklayarak bütün izin geçmişini açabilirsiniz</p></div></div>${leaveTable(db.leaveRequests, true)}</div>`;
 }
@@ -2185,139 +2044,18 @@ function leaveTable(items, actions, compact = false) {
   }).join('')}</tbody></table></div>`;
 }
 function calendarHtml(year, month) {
-  const first = new Date(year, month, 1);
-  const last = new Date(year, month + 1, 0);
-  const mondayIndex = (first.getDay() + 6) % 7;
-  const total = Math.ceil((mondayIndex + last.getDate()) / 7) * 7;
-  const gridStart = addDays(first, -mondayIndex);
+  const first = new Date(year, month, 1); const last = new Date(year, month + 1, 0); const mondayIndex = (first.getDay() + 6) % 7; const total = Math.ceil((mondayIndex + last.getDate()) / 7) * 7;
   const heads = ['Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz'].map(x => `<div class="calendar-head">${x}</div>`).join('');
   let days = '';
-
   for (let i = 0; i < total; i++) {
-    const cellDate = addDays(gridStart, i);
-    const date = toISO(cellDate);
-    const inMonth = cellDate.getMonth() === month && cellDate.getFullYear() === year;
-    const events = (db.leaveRequests || [])
-      .filter(x => (isApprovedLeaveStatus(x.status) || String(x.status || '').toLowerCase() === 'report') && normalizeRecordDate(x.start) <= date && normalizeRecordDate(x.end) >= date)
-      .sort((a, b) => String(getUser(a.userId)?.name || '').localeCompare(String(getUser(b.userId)?.name || ''), 'tr-TR', { sensitivity:'base' }));
-    const visible = events.slice(0, 1);
-    const more = Math.max(0, events.length - visible.length);
-    days += `<div class="calendar-day${inMonth ? '' : ' muted'}">
-      <div class="day-num">${cellDate.getDate()}</div>
-      ${visible.map(e => `<button class="calendar-event ${leaveTypeCalendarClass(e.type)}" onclick="openPersonnelLeaves(${Number(e.userId)})" title="${escapeHtml((getUser(e.userId)?.name || '-') + ' · ' + (e.type || 'İzin'))}">${escapeHtml(getUser(e.userId)?.name || '-')}</button>`).join('')}
-      ${more ? `<button class="calendar-more" onclick="openCalendarDayLeaves('${date}')">+${more}</button>` : ''}
-    </div>`;
+    const day = i - mondayIndex + 1;
+    if (day < 1 || day > last.getDate()) { days += '<div class="calendar-day muted"></div>'; continue; }
+    const date = `${year}-${pad(month + 1)}-${pad(day)}`;
+    const events = db.leaveRequests.filter(x => date >= x.start && date <= x.end);
+    days += `<div class="calendar-day"><div class="day-num">${day}</div>${events.map(e => `<button class="calendar-event ${e.status}" onclick="openPersonnelLeaves(${e.userId})">${escapeHtml(getUser(e.userId)?.name || '-')}</button>`).join('')}</div>`;
   }
-  return `<div class="calendar">${heads}${days}</div>${leaveTypeLegendHtml()}`;
+  return `<div class="calendar">${heads}${days}</div>`;
 }
-
-function openLeaveCalendarTab(autoPrint = false) {
-  if (!hasPermission('leave.view')) return toast('İzin takvimini görüntüleme yetkiniz bulunmuyor.');
-  const initialYear = leaveCalendarCursor.getFullYear();
-  const initialMonth = leaveCalendarCursor.getMonth();
-  const records = (db.leaveRequests || []).filter(x => isApprovedLeaveStatus(x.status) || String(x.status || '').toLowerCase() === 'report').map(x => ({
-    id: Number(x.id || 0),
-    userId: Number(x.userId),
-    name: String(getUser(x.userId)?.name || '-'),
-    type: String(x.type || 'İzin'),
-    status: String(x.status || 'neutral'),
-    start: normalizeRecordDate(x.start),
-    end: normalizeRecordDate(x.end)
-  }));
-  const payload = JSON.stringify(records).replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
-  const tab = window.open('', '_blank');
-  if (!tab) return toast('Yeni sekme tarayıcı tarafından engellendi. Açılır pencere izni verip tekrar deneyin.');
-
-  const printFlag = autoPrint ? 'true' : 'false';
-  tab.document.open();
-  tab.document.write(`<!doctype html>
-<html lang="tr">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>PBYS · İzin Takvimi</title>
-<style>
-  :root{--ink:#172033;--muted:#667085;--line:#dfe5ec;--soft:#f7f9fc;--teal:#0f9488;--teal2:#0b7e75}
-  *{box-sizing:border-box}
-  body{margin:0;background:#eef2f6;color:var(--ink);font-family:Inter,Arial,sans-serif}
-  .shell{max-width:1480px;margin:0 auto;padding:24px}
-  .toolbar{position:sticky;top:0;z-index:5;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 18px;margin-bottom:16px;background:rgba(255,255,255,.96);backdrop-filter:blur(10px);border:1px solid var(--line);border-radius:18px;box-shadow:0 8px 30px rgba(15,23,42,.08)}
-  .toolbar h1{font-size:24px;margin:0 0 4px;font-weight:800}.toolbar p{margin:0;color:var(--muted);font-size:13px}
-  .actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
-  button{border:1px solid var(--line);background:#fff;color:#344054;padding:10px 14px;border-radius:11px;font-weight:800;cursor:pointer;font-size:13px}
-  button.primary{background:linear-gradient(135deg,#13a99b,var(--teal2));border-color:transparent;color:#fff}
-  .calendar-card{background:#fff;border:1px solid var(--line);border-radius:20px;box-shadow:0 12px 34px rgba(15,23,42,.08);overflow:hidden}
-  .calendar{display:grid;grid-template-columns:repeat(7,minmax(145px,1fr));min-width:1050px;border-top:1px solid var(--line);border-left:1px solid var(--line)}
-  .calendar-wrap{overflow:auto;padding:18px}
-  .head{padding:12px 8px;text-align:center;background:var(--soft);font-size:12px;font-weight:800;color:var(--muted);border-right:1px solid var(--line)}
-  .day{min-height:145px;padding:9px;border-right:1px solid var(--line);border-bottom:1px solid var(--line);background:#fff;overflow:hidden}
-  .day.muted{background:#fafbfc;color:#98a2b3}.num{font-size:14px;font-weight:900;margin-bottom:6px}
-  .event{display:block;width:100%;padding:6px 7px;margin-top:5px;border-radius:7px;font-size:10px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .event.annual{background:#dcfce7;color:#166534}.event.health{background:#fee2e2;color:#991b1b}.event.excuse{background:#ffedd5;color:#9a3412}.event.daily{background:#dbeafe;color:#1d4ed8}.event.road{background:#ede9fe;color:#6d28d9}.event.other{background:#eef2f6;color:#475467}
-  .more{margin-top:5px;font-size:10px;font-weight:900;color:var(--teal)}
-  .legend{display:flex;gap:12px;flex-wrap:wrap;padding:0 18px 18px;color:var(--muted);font-size:11px}.legend span{display:flex;align-items:center;gap:6px}.dot{width:9px;height:9px;border-radius:50%;display:inline-block}.annual-dot{background:#86efac}.health-dot{background:#fca5a5}.excuse-dot{background:#fdba74}.daily-dot{background:#93c5fd}.road-dot{background:#c4b5fd}.other-dot{background:#cbd5e1}
-  .list{margin-top:16px;background:#fff;border:1px solid var(--line);border-radius:18px;overflow:hidden}.list h2{font-size:16px;margin:0;padding:16px 18px;border-bottom:1px solid var(--line)}
-  table{width:100%;border-collapse:collapse;font-size:12px}th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line)}th{background:var(--soft);color:var(--muted);font-size:11px}tr:last-child td{border-bottom:0}
-  .status{font-weight:800}.empty{padding:18px;color:var(--muted)}
-  @media(max-width:760px){.shell{padding:10px}.toolbar{position:static;align-items:flex-start;flex-direction:column;padding:14px}.toolbar h1{font-size:20px}.actions{width:100%;display:grid;grid-template-columns:repeat(3,1fr)}.actions button{padding:9px 6px;font-size:11px}.actions .print{grid-column:1/-1}.calendar-wrap{padding:10px}.calendar{grid-template-columns:repeat(7,145px)}.list{overflow:auto}}
-  @media print{
-    @page{size:A4 landscape;margin:9mm}
-    body{background:#fff}.shell{max-width:none;padding:0}.toolbar{position:static;box-shadow:none;border:0;padding:0 0 7mm;margin:0}.actions{display:none}.toolbar h1{font-size:19px}.toolbar p{font-size:10px}
-    .calendar-card{box-shadow:none;border:1px solid #cfd6df;border-radius:0}.calendar-wrap{overflow:visible;padding:0}.calendar{min-width:0;grid-template-columns:repeat(7,1fr)}.head{padding:5px 2px;font-size:8px}.day{min-height:27mm;padding:3px}.num{font-size:9px;margin-bottom:2px}.event{font-size:6.5px;padding:2px 3px;margin-top:2px}.more{font-size:6.5px;margin-top:2px}.legend{padding:3mm 0 0;font-size:7px}
-    .list{box-shadow:none;border-radius:0;margin-top:5mm;break-before:auto}.list h2{font-size:11px;padding:5px 7px}table{font-size:7px}th,td{padding:4px 5px}th{font-size:6.5px}
-  }
-</style>
-</head>
-<body>
-<div class="shell">
-  <div class="toolbar"><div><h1 id="title"></h1><p>PBYS · İzin Yönetimi · Büyük takvim görünümü</p></div><div class="actions"><button onclick="move(-1)">‹ Önceki Ay</button><button onclick="today()">Bu Ay</button><button class="primary" onclick="move(1)">Sonraki Ay ›</button><button class="print" onclick="window.print()">🖨 Yazdır / PDF</button></div></div>
-  <div class="calendar-card"><div class="calendar-wrap"><div id="calendar" class="calendar"></div></div><div class="legend"><span><i class="dot annual-dot"></i>Yıllık İzin</span><span><i class="dot health-dot"></i>Sağlık Raporu</span><span><i class="dot excuse-dot"></i>Mazeret İzni</span><span><i class="dot daily-dot"></i>Günübirlik İzin</span><span><i class="dot road-dot"></i>Yol İzni</span><span><i class="dot other-dot"></i>Diğer</span></div></div>
-  <div class="list"><h2 id="listTitle">Ay içindeki izin kayıtları</h2><div id="listBody"></div></div>
-</div>
-<script>
-const records=${payload};
-let cursor=new Date(${initialYear},${initialMonth},1);
-const heads=['Pzt','Sal','Çar','Per','Cum','Cmt','Paz'];
-const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const pad=n=>String(n).padStart(2,'0');
-const iso=d=>d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());
-const add=(d,n)=>{const x=new Date(d);x.setDate(x.getDate()+n);return x};
-const monthName=(y,m)=>new Intl.DateTimeFormat('tr-TR',{month:'long',year:'numeric'}).format(new Date(y,m,1));
-const pretty=s=>{const [y,m,d]=String(s).split('-');return d+'.'+m+'.'+y};
-const statusText=s=>s==='approved'?'Onaylandı':s==='pending'?'Onay Bekliyor':s==='rejected'?'Reddedildi':s==='report'?'Rapor':'—';
-const typeClass=t=>{const x=String(t||'').toLocaleLowerCase('tr-TR');if(x.includes('yıllık')||x.includes('yillik'))return'annual';if(x.includes('sağlık')||x.includes('saglik')||x.includes('rapor'))return'health';if(x.includes('mazeret'))return'excuse';if(x.includes('günübirlik')||x.includes('gunubirlik'))return'daily';if(x.includes('yol'))return'road';return'other'};
-function monthRecords(y,m){const start=y+'-'+pad(m+1)+'-01';const end=y+'-'+pad(m+1)+'-'+pad(new Date(y,m+1,0).getDate());return records.filter(r=>r.start<=end&&r.end>=start).sort((a,b)=>a.start.localeCompare(b.start)||a.name.localeCompare(b.name,'tr'))}
-function render(){
-  const y=cursor.getFullYear(),m=cursor.getMonth();document.getElementById('title').textContent=monthName(y,m)+' İzin Takvimi';document.title=monthName(y,m)+' İzin Takvimi · PBYS';
-  const first=new Date(y,m,1),last=new Date(y,m+1,0),mi=(first.getDay()+6)%7,total=Math.ceil((mi+last.getDate())/7)*7,start=add(first,-mi);
-  let html=heads.map(h=>'<div class="head">'+h+'</div>').join('');
-  for(let i=0;i<total;i++){
-    const d=add(start,i),ds=iso(d),inMonth=d.getMonth()===m&&d.getFullYear()===y;
-    const ev=records.filter(r=>r.start<=ds&&r.end>=ds).sort((a,b)=>a.name.localeCompare(b.name,'tr'));const vis=ev.slice(0,4),more=Math.max(0,ev.length-vis.length);
-    html+='<div class="day'+(inMonth?'':' muted')+'"><div class="num">'+d.getDate()+'</div>'+vis.map(e=>'<div class="event '+typeClass(e.type)+'" title="'+esc(e.name+' · '+e.type)+'">'+esc(e.name)+'</div>').join('')+(more?'<div class="more">+'+more+' kişi daha</div>':'')+'</div>';
-  }
-  document.getElementById('calendar').innerHTML=html;
-  const list=monthRecords(y,m);document.getElementById('listTitle').textContent=monthName(y,m)+' · İzin kayıtları ('+list.length+')';
-  document.getElementById('listBody').innerHTML=list.length?'<table><thead><tr><th>Personel</th><th>İzin türü</th><th>Başlangıç</th><th>Bitiş</th><th>Durum</th></tr></thead><tbody>'+list.map(r=>'<tr><td><strong>'+esc(r.name)+'</strong></td><td>'+esc(r.type)+'</td><td>'+pretty(r.start)+'</td><td>'+pretty(r.end)+'</td><td class="status">'+statusText(r.status)+'</td></tr>').join('')+'</tbody></table>':'<div class="empty">Bu ay için izin kaydı bulunmuyor.</div>';
-}
-function move(n){cursor=new Date(cursor.getFullYear(),cursor.getMonth()+n,1);render()}function today(){const d=new Date();cursor=new Date(d.getFullYear(),d.getMonth(),1);render()}
-render();if(${printFlag})setTimeout(()=>window.print(),350);
-<\/script>
-</body></html>`);
-  tab.document.close();
-  tab.focus();
-}
-
-function openCalendarDayLeaves(date) {
-  if (!hasPermission('leave.view')) return;
-  const events = (db.leaveRequests || [])
-    .filter(x => (isApprovedLeaveStatus(x.status) || String(x.status || '').toLowerCase() === 'report') && normalizeRecordDate(x.start) <= date && normalizeRecordDate(x.end) >= date)
-    .sort((a, b) => String(getUser(a.userId)?.name || '').localeCompare(String(getUser(b.userId)?.name || ''), 'tr'));
-  if (!events.length) return toast('Bu tarihte izin kaydı bulunmuyor.');
-  const rows = events.map(e => `<button class="quick-item" onclick="openPersonnelLeaves(${Number(e.userId)})" style="width:100%;text-align:left"><div><strong>${escapeHtml(getUser(e.userId)?.name || '-')}</strong><span>${escapeHtml(e.type || 'İzin')} · ${escapeHtml(leaveStatusBadge(e).replace(/<[^>]+>/g, ''))}</span></div><b>›</b></button>`).join('');
-  showModal(`${formatDayDate(date)} · İzinliler`, `<div class="quick-list">${rows}</div>`);
-}
-
 function openPersonnelLeaves(userId) {
   if (!hasPermission('personnel.view') && !hasPermission('leave.view')) return;
   const user = getUser(userId); if (!user) return;
@@ -2330,133 +2068,48 @@ function openPersonnelLeaves(userId) {
       ${metric('📅', 'Yıllık kalan', getRemainingLeave(user) + ' gün', '30 günlük temel bakiye')}
       ${metric('🛣️', 'Yol izni kalan', getRoadRemaining(user) + ' gün', 'Yıllık izin kaydından otomatik düşer')}
     </div>
-    ${personLeaveUsageHtml(user)}
     <div class="person-summary section-gap"><div><strong>Rol</strong><span>${escapeHtml(userRoleLabels(user))}</span></div>${hasPermission('leave.plan') ? `<div><strong>Planlama puanı</strong><span>${user.planningScore ?? 0}</span></div>` : ''}<div><strong>${db.settings.leavePlanYear} tercihi</strong><span>${preference ? 'Gönderildi' : 'Gönderilmedi'}</span></div></div>
     ${preference ? (()=>{const p=normalizePreferenceRecord(preference);return `<div class="preference-period-title section-gap"><strong>❄️ Kış dönemi · 10 gün</strong><span>Ocak–Mayıs ve Ekim–Aralık</span></div><div class="preference-summary"><div><strong>Kış 1. tercih</strong><span>${p.winterFirstStart?`${formatDate(p.winterFirstStart)} – ${formatDate(p.winterFirstEnd)}`:'—'}</span></div><div><strong>Kış 2. tercih</strong><span>${p.winterSecondStart?`${formatDate(p.winterSecondStart)} – ${formatDate(p.winterSecondEnd)}`:'—'}</span></div></div><div class="preference-period-title section-gap"><strong>☀️ Yaz dönemi · 20 gün</strong><span>Haziran–Eylül</span></div><div class="preference-summary"><div><strong>Yaz 1. tercih</strong><span>${p.summerFirstStart?`${formatDate(p.summerFirstStart)} – ${formatDate(p.summerFirstEnd)}`:'—'}</span></div><div><strong>Yaz 2. tercih</strong><span>${p.summerSecondStart?`${formatDate(p.summerSecondStart)} – ${formatDate(p.summerSecondEnd)}`:'—'}</span></div></div>`})() : ''}
     <div class="section-gap"><h3>Tüm izin kayıtları</h3>${records.length ? leaveTable(records, false, true) : '<div class="empty">Bu personele ait izin kaydı bulunmuyor.</div>'}</div>`);
 }
 function leaveModal(asManager = false, editId = null) {
   if (!asManager && isCommander()) return toast('Karakol Komutanı için yeni izin talebi bu sistemden oluşturulmaz.');
-
-  // Yönetici izin kaydındaki personel listesi Türkçe alfabetik A-Z sıralanır.
-  const users = approvedUsers().slice().sort((a, b) =>
-    String(a.name || '').localeCompare(String(b.name || ''), 'tr-TR', { sensitivity: 'base' })
-  );
+  const users = approvedUsers();
   const editing = editId ? db.leaveRequests.find(x => x.id === Number(editId)) : null;
   if (editing && (asManager || !canEditOwnLeave(editing))) return toast('Bu izin talebi artık personel tarafından düzenlenemez.');
-
   const selectedType = editing?.type || 'Yıllık İzin';
-  const types = ['Yıllık İzin','Günübirlik İzin','Mazeret İzni','Sağlık İzni','Sağlık Raporu','Görev / Kurs'];
+  const types = ['Yıllık İzin','Günübirlik İzin','Mazeret İzni','Sağlık İzni','Görev / Kurs'];
   if (selectedType === 'Yol İzni') types.push('Yol İzni'); // yalnızca eski kaydı düzenlerken görünür
-
-  const initialDays = editing
-    ? Math.max(1, Number(editing.days || daysBetween(editing.start, editing.end)))
-    : '';
   const title = editing ? 'İzin Talebini Düzenle' : (asManager ? 'Geçmiş / Yönetici İzin Kaydı Ekle' : 'Yeni İzin Talebi');
-
   showModal(title, `<form id="leaveForm" class="form-grid">
-    ${asManager ? `<label class="span-2">Personel<select name="userId">${users.map(u => `<option value="${u.id}"${editing?.userId === u.id ? ' selected' : ''}>${escapeHtml(u.name)}</option>`).join('')}</select></label>` : ''}
-    <label>İzin türü<select name="type" id="leaveTypeSelect">${types.map(type => `<option${type === selectedType ? ' selected' : ''}>${type}</option>`).join('')}</select></label>
+    ${asManager ? `<label class="span-2">Personel<select name="userId">${users.map(u => `<option value="${u.id}">${escapeHtml(u.name)}</option>`).join('')}</select></label>` : ''}
+    <label>İzin türü<select name="type">${types.map(type => `<option${type === selectedType ? ' selected' : ''}>${type}</option>`).join('')}</select></label>
     <label>İzne gidilecek şehir<input name="city" value="${escapeHtml(editing?.city || '')}" ${asManager ? '' : 'required'}></label>
-
-    <div class="span-2 leave-date-grid">
-      <label>Başlangıç tarihi<input name="start" id="leaveStartInput" type="date" value="${editing?.start || ''}" required></label>
-      <label>İzin gün sayısı<input name="days" id="leaveDaysInput" type="number" min="1" step="1" inputmode="numeric" value="${initialDays}" placeholder="Örn. 10" required></label>
-      <label>Bitiş tarihi<input name="end" id="leaveEndInput" type="date" value="${editing?.end || ''}" required></label>
-    </div>
-    <div class="span-2 leave-date-help">Başlangıç tarihi ile gün sayısını yazdığınızda bitiş tarihi otomatik hesaplanır. Bitiş tarihini elle değiştirirseniz gün sayısı da otomatik güncellenir.</div>
-
+    <label>Başlangıç tarihi<input name="start" type="date" value="${editing?.start || ''}" required></label>
+    <label>Bitiş tarihi<input name="end" type="date" value="${editing?.end || ''}" required></label>
     <label class="span-2">Açıklama<textarea name="note">${escapeHtml(editing?.note || '')}</textarea></label>
     <div class="span-2 form-hint"><strong>Yıllık izin kuralı:</strong> Personelin 30 gün yıllık + 2 gün yol olmak üzere toplam 32 günlük hakkı vardır. Yıllık izin kaydında kalan yol izni önce otomatik kullanılır; ayrıca “Yol İzni” kaydı açılmaz.</div>
     ${asManager ? '<div class="span-2 form-hint">Admin/İdari İşler geçmiş aylarda kullanılmış izinleri buradan ekleyebilir. Kayıt onaylı olarak işlenir ve bakiyeyi otomatik etkiler.</div>' : ''}
     <div class="span-2"><button class="btn btn-primary btn-block">${editing ? 'Değişiklikleri Kaydet' : (asManager ? 'İzin Kaydını Ekle' : 'Talebi Gönder')}</button></div>
   </form>`);
-
-  const form = document.getElementById('leaveForm');
-  const startInput = document.getElementById('leaveStartInput');
-  const daysInput = document.getElementById('leaveDaysInput');
-  const endInput = document.getElementById('leaveEndInput');
-  const typeInput = document.getElementById('leaveTypeSelect');
-
-  const normalizeDayCount = () => {
-    const value = Math.floor(Number(daysInput.value));
-    return Number.isFinite(value) && value > 0 ? value : 0;
-  };
-  const syncEndFromDays = () => {
-    const days = normalizeDayCount();
-    if (!startInput.value || !days) return;
-    endInput.value = toISO(addDays(parseISO(startInput.value), days - 1));
-  };
-  const syncDaysFromDates = () => {
-    if (!startInput.value || !endInput.value || endInput.value < startInput.value) return;
-    daysInput.value = daysBetween(startInput.value, endInput.value);
-  };
-  const enforceDailyLeave = () => {
-    if (typeInput.value !== 'Günübirlik İzin') return;
-    daysInput.value = 1;
-    if (startInput.value) endInput.value = startInput.value;
-  };
-
-  startInput.addEventListener('change', () => {
-    enforceDailyLeave();
-    if (typeInput.value !== 'Günübirlik İzin') syncEndFromDays();
-  });
-  daysInput.addEventListener('input', () => {
-    if (typeInput.value === 'Günübirlik İzin') {
-      enforceDailyLeave();
-      return;
-    }
-    syncEndFromDays();
-  });
-  daysInput.addEventListener('change', () => {
-    const days = normalizeDayCount();
-    if (days) daysInput.value = days;
-    syncEndFromDays();
-  });
-  endInput.addEventListener('change', () => {
-    if (endInput.value && startInput.value && endInput.value < startInput.value) {
-      endInput.value = '';
-      return toast('Bitiş tarihi başlangıçtan önce olamaz.');
-    }
-    syncDaysFromDates();
-    enforceDailyLeave();
-  });
-  typeInput.addEventListener('change', () => {
-    if (typeInput.value === 'Günübirlik İzin') enforceDailyLeave();
-  });
-
-  form.addEventListener('submit', e => {
-    e.preventDefault();
-    const f = new FormData(e.target);
-    const start = String(f.get('start') || '');
-    let end = String(f.get('end') || '');
-    const type = String(f.get('type') || '');
-    const enteredDays = Math.floor(Number(f.get('days')));
-
-    if (!start) return toast('Başlangıç tarihini seçin.');
-    if (!Number.isFinite(enteredDays) || enteredDays < 1) return toast('İzin gün sayısı en az 1 olmalıdır.');
-
-    // Gün sayısı alanı esas alınarak bitiş tarihi son kez güvenli biçimde hesaplanır.
-    end = toISO(addDays(parseISO(start), enteredDays - 1));
-    if (type === 'Günübirlik İzin' && enteredDays !== 1) return toast('Günübirlik izin yalnızca 1 gün olabilir.');
-
-    const payload = { type, city: f.get('city') || '-', start, end, days: enteredDays, note: f.get('note') };
+  document.getElementById('leaveForm').addEventListener('submit', e => {
+    e.preventDefault(); const f = new FormData(e.target), start = f.get('start'), end = f.get('end'), type = f.get('type');
+    if (end < start) return toast('Bitiş tarihi başlangıçtan önce olamaz.');
+    if (type === 'Günübirlik İzin' && start !== end) return toast('Günübirlik izin için başlangıç ve bitiş aynı gün olmalıdır.');
+    const payload = { type, city: f.get('city') || '-', start, end, days: daysBetween(start, end), note: f.get('note') };
     const targetUser = getUser(asManager ? Number(f.get('userId')) : (editing?.userId ?? currentUser.id));
     if (type === 'Yıllık İzin' && !canFitAnnualLeaveEntitlement(targetUser, payload.days)) {
       return toast(`${targetUser?.name || 'Personel'} için toplam yıllık izin hakkı (${getTotalLeaveEntitlement(targetUser)} gün) aşılamaz.`);
     }
     if (editing) {
       Object.assign(editing, payload, { status: 'pending', updatedAt: new Date().toISOString() });
-      logAudit('leave_request_updated', `${currentUser.name} izin talebini güncelledi: ${start} - ${end} (${enteredDays} gün)`);
+      logAudit('leave_request_updated', `${currentUser.name} izin talebini güncelledi: ${start} - ${end}`);
     } else {
       const record = { id: Date.now(), userId: asManager ? Number(f.get('userId')) : currentUser.id, ...payload, status: asManager ? 'approved' : 'pending', source: asManager ? 'historical-or-authorized' : 'request', createdAt: new Date().toISOString() };
       db.leaveRequests.push(record);
-      logAudit(asManager ? 'leave_historical_created' : 'leave_request_created', `${getUser(record.userId)?.name || currentUser.name}: ${type} ${start} - ${end} (${enteredDays} gün)`);
+      logAudit(asManager ? 'leave_historical_created' : 'leave_request_created', `${getUser(record.userId)?.name || currentUser.name}: ${type} ${start} - ${end}`);
     }
-    saveDB();
-    closeModal();
-    asManager ? renderLeaveManagement() : renderMyLeaves();
-    toast(editing ? 'İzin talebiniz güncellendi.' : (asManager ? 'İzin kaydı eklendi ve bakiye güncellendi.' : 'İzin talebiniz onaya gönderildi.'));
+    saveDB(); closeModal(); asManager ? renderLeaveManagement() : renderMyLeaves(); toast(editing ? 'İzin talebiniz güncellendi.' : (asManager ? 'İzin kaydı eklendi ve bakiye güncellendi.' : 'İzin talebiniz onaya gönderildi.'));
   });
 }
 function deleteLeaveRequest(id, asManager = false) {
@@ -2928,16 +2581,16 @@ function reportHtml(type) {
     return `${head('Yemek Katılım Raporu')}<table><thead><tr><th>Tarih</th><th>Sabah</th><th>Akşam</th><th>Görev/Ayır</th><th>Yemeyecek</th><th>İzin</th></tr></thead><tbody>${rows}</tbody></table>`;
   }
   if (type === 'finance') {
-    const rows = db.debts.slice().sort((a,b) => { const an=String(getUser(a.userId)?.name||''); const bn=String(getUser(b.userId)?.name||''); return an.localeCompare(bn,'tr-TR',{sensitivity:'base'}) || String(a.period||'').localeCompare(String(b.period||''),'tr-TR',{sensitivity:'base'}); }).map(d=>`<tr><td>${escapeHtml(getUser(d.userId)?.name||'-')}</td><td>${escapeHtml(d.period)}</td><td>${money(d.amount)}</td><td>${money(d.paid)}</td><td>${money(Math.max(0,d.amount-d.paid))}</td></tr>`).join('');
+    const rows = db.debts.map(d=>`<tr><td>${escapeHtml(getUser(d.userId)?.name||'-')}</td><td>${escapeHtml(d.period)}</td><td>${money(d.amount)}</td><td>${money(d.paid)}</td><td>${money(Math.max(0,d.amount-d.paid))}</td></tr>`).join('');
     return `${head('Borç ve Tahsilat Raporu')}<table><thead><tr><th>Personel</th><th>Dönem</th><th>Borç</th><th>Ödenen</th><th>Kalan</th></tr></thead><tbody>${rows||'<tr><td colspan="5">Kayıt yok.</td></tr>'}</tbody></table>`;
   }
   if (type === 'leave') {
-    const summaryRows = approvedUsersAZ().map(u => {
+    const summaryRows = approvedUsers().map(u => {
       const b = getLeaveBreakdown(u, false);
       return `<tr><td>${escapeHtml(u.name)}</td><td>${getTotalLeaveEntitlement(u)}</td><td>${b.totalUsed}</td><td>${b.totalRemaining}</td><td>${u.annualAllowance??30}</td><td>${b.annualRemaining}</td><td>${u.roadAllowance??2}</td><td>${b.roadRemaining}</td></tr>`;
     }).join('');
     const usedRows = [];
-    approvedUsersAZ().forEach(u => {
+    approvedUsers().forEach(u => {
       getUsedLeaveRanges(u.id, 'Yıllık İzin').forEach(x => usedRows.push(`<tr><td>${escapeHtml(u.name)}</td><td>Yıllık İzin</td><td>${formatShortDate(x.start)} – ${formatShortDate(x.usedEnd)}</td><td>${x.usedDays}</td></tr>`));
       getUsedLeaveRanges(u.id, 'Yol İzni').forEach(x => usedRows.push(`<tr><td>${escapeHtml(u.name)}</td><td>Yol İzni</td><td>${formatShortDate(x.start)} – ${formatShortDate(x.usedEnd)}</td><td>${x.usedDays}</td></tr>`));
       if (Number(u.usedLeave || 0)) usedRows.push(`<tr><td>${escapeHtml(u.name)}</td><td>Yıllık İzin</td><td>Eski manuel kayıt · tarih girilmemiş</td><td>${Number(u.usedLeave)}</td></tr>`);
@@ -2947,12 +2600,12 @@ function reportHtml(type) {
   }
   if (type === 'planning') {
     const year=db.settings.leavePlanYear;
-    const winterRows=sortUsersAZ(planningUsers()).map(u=>{const p=normalizePreferenceRecord(db.leavePreferences.find(x=>x.userId===u.id&&x.year===year));const r=db.leavePlanResults.find(x=>x.userId===u.id&&x.year===year);return `<tr><td>${escapeHtml(u.name)}</td><td>${u.planningScore??0}</td><td>${p&&p.winterFirstStart?`${formatShortDate(p.winterFirstStart)} - ${formatShortDate(p.winterFirstEnd)}`:'—'}</td><td>${p&&p.winterSecondStart?`${formatShortDate(p.winterSecondStart)} - ${formatShortDate(p.winterSecondEnd)}`:'—'}</td><td>${r?resultSeasonLabel(r,'winter'):'—'}</td></tr>`}).join('');
-    const summerRows=sortUsersAZ(planningUsers()).map(u=>{const p=normalizePreferenceRecord(db.leavePreferences.find(x=>x.userId===u.id&&x.year===year));const r=db.leavePlanResults.find(x=>x.userId===u.id&&x.year===year);return `<tr><td>${escapeHtml(u.name)}</td><td>${u.planningScore??0}</td><td>${p&&p.summerFirstStart?`${formatShortDate(p.summerFirstStart)} - ${formatShortDate(p.summerFirstEnd)}`:'—'}</td><td>${p&&p.summerSecondStart?`${formatShortDate(p.summerSecondStart)} - ${formatShortDate(p.summerSecondEnd)}`:'—'}</td><td>${r?resultSeasonLabel(r,'summer'):'—'}</td></tr>`}).join('');
+    const winterRows=planningUsers().map(u=>{const p=normalizePreferenceRecord(db.leavePreferences.find(x=>x.userId===u.id&&x.year===year));const r=db.leavePlanResults.find(x=>x.userId===u.id&&x.year===year);return `<tr><td>${escapeHtml(u.name)}</td><td>${u.planningScore??0}</td><td>${p&&p.winterFirstStart?`${formatShortDate(p.winterFirstStart)} - ${formatShortDate(p.winterFirstEnd)}`:'—'}</td><td>${p&&p.winterSecondStart?`${formatShortDate(p.winterSecondStart)} - ${formatShortDate(p.winterSecondEnd)}`:'—'}</td><td>${r?resultSeasonLabel(r,'winter'):'—'}</td></tr>`}).join('');
+    const summerRows=planningUsers().map(u=>{const p=normalizePreferenceRecord(db.leavePreferences.find(x=>x.userId===u.id&&x.year===year));const r=db.leavePlanResults.find(x=>x.userId===u.id&&x.year===year);return `<tr><td>${escapeHtml(u.name)}</td><td>${u.planningScore??0}</td><td>${p&&p.summerFirstStart?`${formatShortDate(p.summerFirstStart)} - ${formatShortDate(p.summerFirstEnd)}`:'—'}</td><td>${p&&p.summerSecondStart?`${formatShortDate(p.summerSecondStart)} - ${formatShortDate(p.summerSecondEnd)}`:'—'}</td><td>${r?resultSeasonLabel(r,'summer'):'—'}</td></tr>`}).join('');
     return `${head(`${year} İzin Planlama Raporu`)}<h3>❄️ Kış Dönemi · 10 Gün</h3><p class="report-note">Ocak-Mayıs ve Ekim-Aralık dönemlerinde ikişer tercih alınır.</p><table><thead><tr><th>Personel</th><th>İç Puan</th><th>Kış 1</th><th>Kış 2</th><th>Karar</th></tr></thead><tbody>${winterRows}</tbody></table><h3>☀️ Yaz Dönemi · 20 Gün</h3><p class="report-note">Haziran-Eylül dönemlerinde ikişer tercih alınır.</p><table><thead><tr><th>Personel</th><th>İç Puan</th><th>Yaz 1</th><th>Yaz 2</th><th>Karar</th></tr></thead><tbody>${summerRows}</tbody></table>`;
   }
   if (type === 'laundry') {
-    const runs=(db.laundryRuns||[]).slice().sort((a,b)=>{ const an=String(getUser(a.userId)?.name||''); const bn=String(getUser(b.userId)?.name||''); return an.localeCompare(bn,'tr-TR',{sensitivity:'base'}) || String(b.startAt||'').localeCompare(String(a.startAt||'')); }).map(x=>{
+    const runs=(db.laundryRuns||[]).slice().sort((a,b)=>String(b.startAt||'').localeCompare(String(a.startAt||''))).map(x=>{
       const status=x.status==='reset'?'Sıfırlandı':x.status==='stopped'?'Durduruldu':x.status==='finished'?'Tamamlandı':'Çalışıyor';
       return `<tr><td>${new Date(x.startAt).toLocaleDateString('tr-TR')}</td><td>${formatClockFromIso(x.startAt)}</td><td>${escapeHtml(x.machine)}</td><td>${escapeHtml(getUser(x.userId)?.name||'-')}</td><td>${Number(x.durationMinutes||0)} dk · ${status}</td></tr>`;
     });
@@ -2960,9 +2613,8 @@ function reportHtml(type) {
   }
   const calc=balanceRowsForPeriod(reportPeriodKey());
   const expenseRows=db.expenses.filter(x=>x.date>=calc.start&&x.date<=calc.end).map(x=>`<tr><td>${formatShortDate(x.date)}</td><td>${escapeHtml(x.name)}</td><td>${money(x.amount)}</td></tr>`).join('');
-  const reportPersonRows=calc.rows.slice().sort((a,b)=>String(a.user?.name||'').localeCompare(String(b.user?.name||''),'tr-TR',{sensitivity:'base'}));
-  const personRows=reportPersonRows.map(x=>`<tr><td>${escapeHtml(x.user.name)}</td><td>${x.count}</td><td>${money(x.count*calc.unit)}</td><td>${annualLeavePeriodHtml(x.user.id,calc.start,calc.end)}</td></tr>`).join('');
-  const leaveRows=reportPersonRows.flatMap(x=>annualLeaveRangesForPeriod(x.user.id,calc.start,calc.end).map(r=>`<tr><td>${escapeHtml(x.user.name)}</td><td>${formatShortDate(r.clippedStart)} – ${formatShortDate(r.clippedEnd)}</td><td>${r.periodDays} gün</td><td>${r.totalDays} gün</td></tr>`)).join('');
+  const personRows=calc.rows.map(x=>`<tr><td>${escapeHtml(x.user.name)}</td><td>${x.count}</td><td>${money(x.count*calc.unit)}</td><td>${annualLeavePeriodHtml(x.user.id,calc.start,calc.end)}</td></tr>`).join('');
+  const leaveRows=calc.rows.flatMap(x=>annualLeaveRangesForPeriod(x.user.id,calc.start,calc.end).map(r=>`<tr><td>${escapeHtml(x.user.name)}</td><td>${formatShortDate(r.clippedStart)} – ${formatShortDate(r.clippedEnd)}</td><td>${r.periodDays} gün</td><td>${r.totalDays} gün</td></tr>`)).join('');
   return `${head(`Aylık Tabldot Bilançosu · ${calc.label}`)}<div class="report-summary"><span>Toplam gider: <strong>${money(calc.totalExpense)}</strong></span><span>Toplam tabldot öğünü: <strong>${calc.totalMeals}</strong></span><span>Öğün birim maliyeti: <strong>${money(calc.unit)}</strong></span></div><p class="report-note">Yemek tercihi ortak gider payını değiştirmez. Bu raporda yalnızca onaylı yıllık izin günleri tabldot hesabından düşülür ve izinli personel tarih aralığıyla birlikte ayrıca gösterilir.</p><h3>Giderler</h3><table><thead><tr><th>Tarih</th><th>Malzeme</th><th>Tutar</th></tr></thead><tbody>${expenseRows||'<tr><td colspan="3">Gider yok.</td></tr>'}</tbody></table><h3>Personel Hesabı</h3><table><thead><tr><th>Personel</th><th>Tabldot Öğünü</th><th>Tutar</th><th>Dönem İçindeki Yıllık İzin</th></tr></thead><tbody>${personRows}</tbody></table><h3>Yıllık İzin Nedeniyle Tabldot Dışında Kalan Personel</h3><table><thead><tr><th>Personel</th><th>İzin Tarih Aralığı</th><th>Bu Dönemde Hariç Gün</th><th>İznin Toplam Süresi</th></tr></thead><tbody>${leaveRows||'<tr><td colspan="4">Bu dönemde yıllık izin nedeniyle tabldot dışında kalan personel bulunmuyor.</td></tr>'}</tbody></table>`;
 }
 function openReportPreview(type) {
@@ -2981,8 +2633,8 @@ function printReportPreview(type) {
 }
 function downloadCsv(title) {
   let csv = 'Rapor;Tarih;Değer\n';
-  if (title.includes('Borç')) csv += db.debts.slice().sort((a,b)=>String(getUser(a.userId)?.name||'').localeCompare(String(getUser(b.userId)?.name||''),'tr-TR',{sensitivity:'base'}) || String(a.period||'').localeCompare(String(b.period||''),'tr-TR',{sensitivity:'base'})).map(d=>`${getUser(d.userId)?.name||'-'};${d.period};${d.amount-d.paid}`).join('\n');
-  else if (title.includes('İzin')) csv += approvedUsersAZ().map(u=>`${u.name};${toISO(new Date())};${getRemainingLeave(u)} gün kalan`).join('\n');
+  if (title.includes('Borç')) csv += db.debts.map(d=>`${getUser(d.userId)?.name||'-'};${d.period};${d.amount-d.paid}`).join('\n');
+  else if (title.includes('İzin')) csv += approvedUsers().map(u=>`${u.name};${toISO(new Date())};${getRemainingLeave(u)} gün kalan`).join('\n');
   else csv += `${title};${toISO(new Date())};PBYS raporu`;
   const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = title.replaceAll(' ', '_') + '.csv'; a.click(); URL.revokeObjectURL(a.href); toast('Rapor indirildi.');
 }
