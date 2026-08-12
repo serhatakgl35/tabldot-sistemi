@@ -5,16 +5,23 @@
  * Bu dosyayı mevcut Kantin10 SMS Apps Script projenize EKLEYEBİLİRSİNİZ.
  * Mevcut doPost(e) fonksiyonunuzun EN BAŞINA şu iki satırı ekleyin:
  *
- *   var pbysCevap = pbysPasswordResetDoPost(e);
- *   if (pbysCevap) return pbysCevap;
+var PROJECT_ID = "berber-randevu-14f7f";
+var BASE_URL = "https://firestore.googleapis.com/v1/projects/" + PROJECT_ID + "/databases/(default)/documents";
  *
  * Böylece mevcut Kantin10 işlevleri bozulmadan aynı Web App URL'si PBYS için de kullanılır.
  *
  * Script Properties içinde gerekli değerler:
- * - ILETI_KEY
- * - ILETI_HASH
- * - ILETI_SENDER
- * - FIREBASE_SERVICE_ACCOUNT_JSON   (gencservi-5d47e servis hesabının tam JSON'u)
+var ILETI_KEY = "bda7bee3c40ba2162715251870c28c82";
+var ILETI_HASH = "c4716ed59c3d2fb1c3fbe332e9320ba9c9e30d81bc2e2219d198bc30d0c0a8e5";
+var ILETI_SENDER = "SerhatAkgul";
+ * - FIREBASE_SERVICE_ACCOUNT_JSON   {
+  "type": "service_account",
+  "project_id": "gencservi-5d47e",
+  "private_key_id": "ed6ffb12ca02135184cc545e81f7c64ef54cb29a",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC6wuXQrbGtkFaw\nnnzIwtcnvNYKLpN/QD+AUJECALjHx+oRYtz2vHTsPrxUQH5RuBmcMCYBRz5x+Sds\nQMd9DJDNqP/grHxL+0fzodUn/UdLCuEFt5B+OdG5EG950ACL2rbWYyv3aQoB9XKa\n0N3pMaAYpSaRR2iuI+lBcirkGoSj4dxRjwH+3pGfL7o65rmuxjMjP0cKqWrHmvB5\nWxWZLXKVUc90KHDF/5xpWf9w5AFK+w2acFEFgMFSugUcKEZHiqSFjHQ2qlDxueX2\nzpZWraYZJ7IoIXDOrwnETkRChQvuOikdDCQI0F9njZ3vM1EOyZK6V0WtOlTkThYw\n2cW/uUBPAgMBAAECggEAJKeE0FiOwzhNc1uftQ1cie2LerMaesKi0+28EA8RNRCc\n9W2YXYquTgGgF88Sm7pMuHVQuDaB4H+ch6gNHxNcxihxk+h2erkmLYBpI/CXUfig\nIm2dG9EAQtihcGBtAwXZlakgI25Hqwu/wvfUXeTB/aRINgI0Xt0odhJQrbUwrDMc\n+wgdW04JEA5HnvGGnunWXVz61lV/MFDfMYpGz2IJJrHFmQhFn9G1b1j1bf2VbA8P\nokOY0zrIkLzoy+9ujIhKwrRzsgwOg/HDI7DgLhU3un9MWfAQF/LryHKHCv+68m8K\n6t6c5q303zDXKR6UtGRxpKX/9GQwgkT9jWXMw7+NSQKBgQD3kK5DyYZYz9ZxjRtH\nBZ6ks3aNhzsJN7SDMPmPWDODc7paOa9LpHwcrHJV/20+j/s6w4FlvFdMsz8Qz/18\n6mv08pkzhtuMTU2/ygYqnipgSsfBIdoWWG/g3r3e5uWmXoFqP5OCziYWWHauaDJ0\ncCLYlvDpWvWqJvysT2zq/f8A+QKBgQDBH99FvPwGVaf3V3GEBvUTyp+mtX11AD2I\nCKwxXXhiz8/++s6D20eqggjVmT/XMA7dxQvGwfMx0ZiZThA06MqC0AmlNLlAf1ue\nP+OpDVcznuLYaPVnI8dzG2UeEMNAsriRxF+G5uCMpV8dvhRhSFHhdFd9vYgW+Mww\nC5KG/qnlhwKBgGbp8kejwwGwhMj3i9tebrCxGhuDl/sg+R2Agn4ggGmo9lMDn+em\nHSIeXfl6EYPsftfS5jvQq8nqydDHZe1D1lUhdKaC7UnJ6QRNi3qz/ZHCBIA4/lxD\nr16fufarrdQXfV0ZyMybviGT7OJb1n2pEBNRzBx1/6IYSvmmmvSlWhihAoGBAJx6\nY6EQ4C+Nxbu+SUbNkFPJ8JPWJ+HeIP0Q8dxJvNprQT97HktuJ+I63EedlUGZOeJs\n3v7bdV5fUkKdIrqMCFH3mGkYkCV3S9esMp1uJsK3sVvhpz07m0Zj4wl6UYohhTTu\npOwcM8Mh1zC1K7QrMdT4PE+wew0J5//h0Ia63xQPAoGAMhaZ0BuidacVhms4HgSc\nuhYttulAAEo4LYk+DxzWZElCPDcoschFAoTLXnhT/mpxd1sMrf40w9mnGh6O+OtP\nb7J5CGzwPf6ZmpuwK2sSgbMySqcWhmXb74/gnNP6NUGS8AUIHoViisghSRYDNIKy\n7GEahGma8WKaeqUGHmOkQ08=\n-----END PRIVATE KEY-----\n",
+
+}
+
  * - PBYS_RESET_SECRET               (uzun, rastgele bir gizli metin)
  */
 
