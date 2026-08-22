@@ -167,6 +167,7 @@ async function bootstrapAdmin({ name, phone, title, password }) {
     roadAllowance: existing?.roadAllowance ?? 2,
     usedLeave: existing?.usedLeave ?? 0,
     usedRoadLeave: existing?.usedRoadLeave ?? 0,
+    manualLeaveUsageByYear: existing?.manualLeaveUsageByYear || {},
     planningScore: existing?.planningScore ?? 50,
     planningScoreNote: existing?.planningScoreNote || ''
   });
@@ -190,6 +191,7 @@ async function registerPending({ name, phone, title, password }) {
     roadAllowance: 2,
     usedLeave: 0,
     usedRoadLeave: 0,
+    manualLeaveUsageByYear: {},
     planningScore: 50,
     planningScoreNote: ''
   });
