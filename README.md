@@ -1,4 +1,15 @@
-# PBYS V9.4.0 — Büyük İzin Takvimi ve Yazdırma
+# PBYS V9.5.0 — Yıllık İzin Hakkı Yenileme
+
+## V9.5.0 yenilikleri
+
+- Personelin **30 gün yıllık + 2 gün yol = 32 günlük** hakkı takvim yılı bazında hesaplanır.
+- Kullanılmayan izin hakkı sonraki yıla devretmez; bakiye her **1 Ocak** günü yeniden 32 günle başlar.
+- Önceki yıllara ait izin kayıtları silinmez ve personelin izin geçmişinde görünmeye devam eder.
+- Önceden onaylanan gelecek yıl izinleri yalnızca ait oldukları yılın hakkından düşer.
+- Yıl değişimine denk gelen izinlerde günler her takvim yılının hakkına ayrı ayrı dağıtılır.
+- Eski tarihsiz manuel izin bakiyeleri 2026 yılına bağlanarak geçmiş raporlarda korunur.
+
+## V9.4.0 — Büyük İzin Takvimi ve Yazdırma
 
 ## V9.4.0 yenilikleri
 - İzin Yönetimi içindeki mevcut mobil ay takvimi aynen korunur.
@@ -105,7 +116,7 @@ Ayrıntılı Apps Script adımları için `PBYS_SMS_KURULUM.txt` dosyasını oku
 
 ## Sürüm
 
-Önbellek/asset sürümü: **9.4.0**
+Önbellek/asset sürümü: **9.5.0**
 
 
 ## V9.3.7 — Aşçı rolü otomatik yetkileri
