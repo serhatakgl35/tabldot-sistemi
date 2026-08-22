@@ -1,5 +1,6 @@
 const APP_KEY = 'personel_yasam_v6';
 const LEGACY_APP_KEYS = [];
+const LEGACY_LEAVE_USAGE_YEAR = 2026;
 
 // PBYS şifre sıfırlama SMS servisi.
 // Mevcut Kantin10 Google Apps Script Web App adresi varsayılan olarak kullanılır.
@@ -146,6 +147,13 @@ function ensureV6Data(data) {
     u.roadAllowance = Number(u.roadAllowance ?? 2);
     u.usedLeave = Number(u.usedLeave ?? 0);
     u.usedRoadLeave = Number(u.usedRoadLeave ?? 0);
+    u.manualLeaveUsageByYear = normalizeManualLeaveUsageByYear(u.manualLeaveUsageByYear);
+    const legacyUsageKey = String(LEGACY_LEAVE_USAGE_YEAR);
+    if (!u.manualLeaveUsageByYear[legacyUsageKey] && (u.usedLeave > 0 || u.usedRoadLeave > 0)) {
+      // Tarihsiz eski manuel bakiyeler 2026 verisidir. Yeni yıllara taşınmaz,
+      // ancak geçmiş raporlarda kaybolmaması için yıl bazlı olarak korunur.
+      u.manualLeaveUsageByYear[legacyUsageKey] = { annual: u.usedLeave, road: u.usedRoadLeave };
+    }
     u.approved = Boolean(u.approved);
     u.rejected = Boolean(u.rejected);
     u.mustChangePassword = Boolean(u.mustChangePassword);
@@ -202,6 +210,36 @@ function formatDate(value) { return new Intl.DateTimeFormat('tr-TR', { day: '2-d
 function formatShortDate(value) { return new Intl.DateTimeFormat('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(parseISO(value)); }
 function formatDayDate(value) { return new Intl.DateTimeFormat('tr-TR', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' }).format(parseISO(value)); }
 function daysBetween(start, end) { return Math.max(1, Math.round((parseISO(end) - parseISO(start)) / 86400000) + 1); }
+function currentLeaveYear(referenceDate = new Date()) { return Number(referenceDate.getFullYear()); }
+function normalizeManualLeaveUsageByYear(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  return Object.fromEntries(Object.entries(value).map(([year, usage]) => [String(year), {
+    annual: Math.max(0, Number(usage?.annual || 0)),
+    road: Math.max(0, Number(usage?.road || 0))
+  }]));
+}
+function getManualLeaveUsage(user, year = currentLeaveYear()) {
+  if (!user) return { annual: 0, road: 0 };
+  const stored = user.manualLeaveUsageByYear?.[String(Number(year))];
+  if (stored) return {
+    annual: Math.max(0, Number(stored.annual || 0)),
+    road: Math.max(0, Number(stored.road || 0))
+  };
+  // 2026 öncesi veri modelindeki tarihsiz manuel bakiyeler yalnızca 2026'ya aittir.
+  if (Number(year) === LEGACY_LEAVE_USAGE_YEAR) return {
+    annual: Math.max(0, Number(user.usedLeave || 0)),
+    road: Math.max(0, Number(user.usedRoadLeave || 0))
+  };
+  return { annual: 0, road: 0 };
+}
+function setManualLeaveUsageForYear(user, year, annual, road) {
+  if (!user) return;
+  user.manualLeaveUsageByYear = normalizeManualLeaveUsageByYear(user.manualLeaveUsageByYear);
+  user.manualLeaveUsageByYear[String(Number(year))] = {
+    annual: Math.max(0, Number(annual || 0)),
+    road: Math.max(0, Number(road || 0))
+  };
+}
 function initials(name) { return String(name).split(' ').map(x => x[0]).filter(Boolean).slice(0, 2).join('').toUpperCase(); }
 function getUser(id) { return db.users.find(u => u.id === Number(id)); }
 function userRoles(user = currentUser) { return user ? (Array.isArray(user.roles) && user.roles.length ? user.roles : [user.role || 'staff']) : []; }
@@ -264,7 +302,7 @@ function notice(title, sub) { return `<div class="quick-item"><div><strong>${tit
 
 async function registerNotificationWorker() {
   if (!('serviceWorker' in navigator) || !window.isSecureContext) return null;
-  try { return await navigator.serviceWorker.register('./sw.js?v=9.4.0'); }
+  try { return await navigator.serviceWorker.register('./sw.js?v=9.5.0'); }
   catch (error) { console.warn('Bildirim service worker kaydı yapılamadı:', error); return null; }
 }
 async function requestSiteNotifications() {
@@ -746,25 +784,36 @@ function concurrentLeaveCapacity() {
   const total = approvedUsers().length;
   return Math.max(1, Math.floor(total * Number(db.settings.leaveConcurrentPercent || 25) / 100));
 }
-function elapsedApprovedLeaveDays(record, today = toISO(new Date())) {
-  if (!record || record.status !== 'approved' || !record.start || !record.end) return 0;
-  // İzin günü, ancak o gün tamamlandıktan sonra "kullanılmış" sayılır.
-  // Örn. başlangıç 10 Ağustos ise 10 Ağustos günü 0; 11 Ağustos günü 1 gün kullanılmış görünür.
-  if (today <= record.start) return 0;
-  const yesterday = toISO(addDays(parseISO(today), -1));
-  const usedEnd = record.end < yesterday ? record.end : yesterday;
-  if (usedEnd < record.start) return 0;
-  return daysBetween(record.start, usedEnd);
+function leaveRecordDaysInYear(record, year, futureToo = true) {
+  if (!record?.start || !record?.end) return 0;
+  const numericYear = Number(year);
+  const yearStart = `${numericYear}-01-01`;
+  const yearEnd = `${numericYear}-12-31`;
+  const clippedStart = record.start > yearStart ? record.start : yearStart;
+  let clippedEnd = record.end < yearEnd ? record.end : yearEnd;
+  if (!futureToo) {
+    // İzin günü, ancak o gün tamamlandıktan sonra "kullanılmış" sayılır.
+    // Örn. başlangıç 10 Ağustos ise 10 Ağustos günü 0; 11 Ağustos günü 1 gün kullanılmış görünür.
+    const yesterday = toISO(addDays(new Date(), -1));
+    if (clippedEnd > yesterday) clippedEnd = yesterday;
+  }
+  return clippedEnd >= clippedStart ? daysBetween(clippedStart, clippedEnd) : 0;
 }
-function getApprovedAnnualDays(userId, futureToo = true) {
-  return db.leaveRequests
-    .filter(x => x.userId === Number(userId) && x.status === 'approved' && x.type === 'Yıllık İzin')
-    .reduce((sum, x) => sum + (futureToo ? Number(x.days || daysBetween(x.start, x.end)) : elapsedApprovedLeaveDays(x)), 0);
+function leaveYearsForRange(start, end) {
+  const first = Number(String(start || '').slice(0, 4));
+  const last = Number(String(end || '').slice(0, 4));
+  if (!Number.isInteger(first) || !Number.isInteger(last) || first > last) return [];
+  return Array.from({ length: last - first + 1 }, (_, index) => first + index);
 }
-function getApprovedRoadDays(userId, futureToo = true) {
+function getApprovedAnnualDays(userId, futureToo = true, year = currentLeaveYear(), excludeId = null) {
   return db.leaveRequests
-    .filter(x => x.userId === Number(userId) && x.status === 'approved' && x.type === 'Yol İzni')
-    .reduce((sum, x) => sum + (futureToo ? Number(x.days || daysBetween(x.start, x.end)) : elapsedApprovedLeaveDays(x)), 0);
+    .filter(x => x.userId === Number(userId) && x.status === 'approved' && x.type === 'Yıllık İzin' && (!excludeId || x.id !== Number(excludeId)))
+    .reduce((sum, x) => sum + leaveRecordDaysInYear(x, year, futureToo), 0);
+}
+function getApprovedRoadDays(userId, futureToo = true, year = currentLeaveYear(), excludeId = null) {
+  return db.leaveRequests
+    .filter(x => x.userId === Number(userId) && x.status === 'approved' && x.type === 'Yol İzni' && (!excludeId || x.id !== Number(excludeId)))
+    .reduce((sum, x) => sum + leaveRecordDaysInYear(x, year, futureToo), 0);
 }
 function getUsedLeaveRanges(userId, type = 'Yıllık İzin') {
   const today = toISO(new Date());
@@ -786,18 +835,19 @@ function leaveStatusBadge(request) {
   if (today > request.end) return '<span class="status success">İzin Kullanıldı</span>';
   return '<span class="status info">İzin Kullanılıyor</span>';
 }
-function getLeaveBreakdown(user, futureToo = false) {
+function getLeaveBreakdown(user, futureToo = false, year = currentLeaveYear()) {
   if (!user) return { annualUsed: 0, roadUsed: 0, totalUsed: 0, annualRemaining: 0, roadRemaining: 0, totalRemaining: 0, autoRoadUsed: 0 };
   const annualAllowance = Math.max(0, Number(user.annualAllowance ?? 30));
   const roadAllowance = Math.max(0, Number(user.roadAllowance ?? 2));
-  const manualAnnual = Math.max(0, Number(user.usedLeave || 0));
-  const manualRoad = Math.max(0, Number(user.usedRoadLeave || 0));
+  const manualUsage = getManualLeaveUsage(user, year);
+  const manualAnnual = manualUsage.annual;
+  const manualRoad = manualUsage.road;
 
   // Eski sürümlerde ayrı açılmış "Yol İzni" kayıtları korunur.
-  const explicitRoad = getApprovedRoadDays(user.id, futureToo);
+  const explicitRoad = getApprovedRoadDays(user.id, futureToo, year);
   // Yeni düzende yıllık izin tarih aralığı tek kayıttır. Kalan yol hakkı önce
   // bu kaydın içinden otomatik düşülür; geriye kalan günler yıllık bakiyedendir.
-  const annualRecordDays = getApprovedAnnualDays(user.id, futureToo);
+  const annualRecordDays = getApprovedAnnualDays(user.id, futureToo, year);
   const roadPoolForAnnual = Math.max(0, roadAllowance - manualRoad - explicitRoad);
   const autoRoadUsed = Math.min(roadPoolForAnnual, annualRecordDays);
   const annualFromRecords = Math.max(0, annualRecordDays - autoRoadUsed);
@@ -816,24 +866,31 @@ function getLeaveBreakdown(user, futureToo = false) {
     autoRoadUsed
   };
 }
-function getRoadRemaining(user) {
-  return getLeaveBreakdown(user, false).roadRemaining;
+function getRoadRemaining(user, year = currentLeaveYear()) {
+  return getLeaveBreakdown(user, false, year).roadRemaining;
 }
-function getTotalLeaveRemaining(user) {
-  return getLeaveBreakdown(user, false).totalRemaining;
+function getTotalLeaveRemaining(user, year = currentLeaveYear()) {
+  return getLeaveBreakdown(user, false, year).totalRemaining;
 }
 function getTotalLeaveEntitlement(user) {
   return Math.max(0, Number(user?.annualAllowance ?? 30)) + Math.max(0, Number(user?.roadAllowance ?? 2));
 }
-function getApprovedLeaveEntitlementDays(userId, excludeId = null) {
+function getApprovedLeaveEntitlementDays(userId, year, excludeId = null) {
   return db.leaveRequests
     .filter(x => x.userId === Number(userId) && x.status === 'approved' && (!excludeId || x.id !== Number(excludeId)) && (x.type === 'Yıllık İzin' || x.type === 'Yol İzni'))
-    .reduce((sum, x) => sum + Number(x.days || daysBetween(x.start, x.end)), 0);
+    .reduce((sum, x) => sum + leaveRecordDaysInYear(x, year, true), 0);
 }
-function canFitAnnualLeaveEntitlement(user, requestedDays, excludeId = null) {
-  if (!user) return false;
-  const already = Math.max(0, Number(user.usedLeave || 0)) + Math.max(0, Number(user.usedRoadLeave || 0)) + getApprovedLeaveEntitlementDays(user.id, excludeId);
-  return already + Number(requestedDays || 0) <= getTotalLeaveEntitlement(user);
+function getExceededLeaveEntitlementYear(user, start, end, excludeId = null) {
+  if (!user) return Number(String(start || '').slice(0, 4)) || currentLeaveYear();
+  return leaveYearsForRange(start, end).find(year => {
+    const manual = getManualLeaveUsage(user, year);
+    const already = manual.annual + manual.road + getApprovedLeaveEntitlementDays(user.id, year, excludeId);
+    const requested = leaveRecordDaysInYear({ start, end }, year, true);
+    return already + requested > getTotalLeaveEntitlement(user);
+  }) || null;
+}
+function canFitAnnualLeaveEntitlement(user, start, end, excludeId = null) {
+  return !getExceededLeaveEntitlementYear(user, start, end, excludeId);
 }
 function normalizeRecordDate(value) {
   if (!value) return '';
@@ -1136,7 +1193,8 @@ function renderCommanderLeaveStatusCard() {
 
 function renderDashboard() {
   const ownDebt = db.debts.filter(x => x.userId === currentUser.id).reduce((s, x) => s + Math.max(0, x.amount - x.paid), 0);
-  const leaveBalance = getLeaveBreakdown(currentUser, false);
+  const leaveYear = currentLeaveYear();
+  const leaveBalance = getLeaveBreakdown(currentUser, false, leaveYear);
   const preference = db.leavePreferences.find(x => x.userId === currentUser.id && x.year === db.settings.leavePlanYear);
   const currentWeek = getWeekDates(mealWeekCursor);
   const mealCount = currentWeek.reduce((sum, date) => sum + (isBillableTabldotSlot(currentUser.id, date) ? 2 : 0), 0);
@@ -1146,7 +1204,7 @@ function renderDashboard() {
     <div class="grid grid-4">
       ${metric('🍽', 'Bu haftaki tabldot öğünü', mealCount, 'Aşçıya ayrılacak: ' + kitchenMealCount + ' öğün')}
       ${metric('₺', 'Güncel borcunuz', money(ownDebt), 'Ödeme bilgileri kendi ekranınızda')}
-      ${metric('📅', 'Toplam izin bakiyesi', leaveBalance.totalRemaining + ' gün', 'Toplam hak: ' + getTotalLeaveEntitlement(currentUser) + ' gün')}
+      ${metric('📅', leaveYear + ' izin bakiyesi', leaveBalance.totalRemaining + ' gün', 'Her 1 Ocak’ta ' + getTotalLeaveEntitlement(currentUser) + ' gün yenilenir')}
       ${metric('🛣️', 'Yıllık + yol dağılımı', leaveBalance.annualRemaining + ' + ' + leaveBalance.roadRemaining + ' gün', 'Yıllık ' + (currentUser.annualAllowance ?? 30) + ' + yol ' + (currentUser.roadAllowance ?? 2))}
     </div>
     <div class="grid grid-2 section-gap">
@@ -1205,6 +1263,7 @@ function renderDashboard() {
 
 function renderMembers() {
   if (!hasPermission('personnel.view')) return goPage('dashboard');
+  const leaveYear = currentLeaveYear();
   const trNameSort = (a, b) => String(a?.name || '').localeCompare(String(b?.name || ''), 'tr-TR', { sensitivity: 'base' });
   const pending = db.users.filter(u => !u.approved && !u.rejected).slice().sort(trNameSort);
   const active = approvedUsers().slice().sort(trNameSort);
@@ -1218,7 +1277,7 @@ function renderMembers() {
       ${pending.length ? `<div class="table-wrap"><table><thead><tr><th>Personel</th><th>Telefon</th><th>Görev</th><th>İşlem</th></tr></thead><tbody>${pending.map(u => `<tr><td><strong>${escapeHtml(u.name)}</strong></td><td>${u.phone}</td><td>${escapeHtml(u.title)}</td><td>${isAdmin() ? `<button class="btn btn-success btn-sm" onclick="approveMember(${u.id})">Onayla</button> <button class="btn btn-danger btn-sm" onclick="rejectMember(${u.id})">Reddet</button>` : 'Admin onayı bekleniyor'}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">Onay bekleyen üyelik bulunmuyor.</div>'}
     </div>
     <div class="card section-gap members-card"><div class="card-header"><div><h3>Tüm aktif personeller</h3><p>Personel bilgileri, izin geçmişi ve yetkiler tek noktadan yönetilir. Liste A-Z sıralıdır.</p></div>${isAdmin() ? '<button class="btn btn-primary btn-sm" onclick="newMemberModal()">Personel Ekle</button>' : ''}</div>
-      <div class="table-wrap members-table-wrap"><table class="members-table"><thead><tr><th>Ad soyad</th><th>Telefon</th><th>Rol</th><th>Görev</th><th>Toplam kalan</th><th>Yıllık / Yol</th><th>İşlem</th></tr></thead><tbody>${active.map(u => `<tr><td><button class="person-link" onclick="openPersonnelLeaves(${u.id})">${escapeHtml(u.name)}</button></td><td>${u.phone}</td><td>${escapeHtml(userRoleLabels(u))}</td><td>${escapeHtml(u.title)}</td><td><strong>${getTotalLeaveRemaining(u)} gün</strong></td><td>${getRemainingLeave(u)} / ${getRoadRemaining(u)} gün</td><td><div class="member-actions">
+      <div class="table-wrap members-table-wrap"><table class="members-table"><thead><tr><th>Ad soyad</th><th>Telefon</th><th>Rol</th><th>Görev</th><th>${leaveYear} kalan</th><th>Yıllık / Yol</th><th>İşlem</th></tr></thead><tbody>${active.map(u => `<tr><td><button class="person-link" onclick="openPersonnelLeaves(${u.id})">${escapeHtml(u.name)}</button></td><td>${u.phone}</td><td>${escapeHtml(userRoleLabels(u))}</td><td>${escapeHtml(u.title)}</td><td><strong>${getTotalLeaveRemaining(u, leaveYear)} gün</strong></td><td>${getRemainingLeave(u, leaveYear)} / ${getRoadRemaining(u, leaveYear)} gün</td><td><div class="member-actions">
         <button class="btn btn-secondary btn-sm" onclick="openPersonnelLeaves(${u.id})">İzinleri</button>
         ${(isAdmin() || hasPermission('leave.manage')) ? `<button class="btn btn-secondary btn-sm" onclick="editMemberModal(${u.id})">Bilgileri Düzenle</button>` : ''}
         ${isAdmin() ? `<button class="btn btn-warning btn-sm" onclick="adminResetPasswordModal(${u.id})">Şifre Sıfırla</button><button class="btn btn-primary btn-sm" onclick="roleModal(${u.id})">Rol / Yetki</button><button class="btn btn-danger btn-sm" onclick="deletePersonnel(${u.id})">Personeli Sil</button>` : ''}
@@ -1326,7 +1385,7 @@ function newMemberModal() {
     e.preventDefault();
     const f = new FormData(e.target);
     const role = f.get('role');
-    const profile = { id: Date.now(), name: f.get('name').trim(), phone: normalizePhone(f.get('phone')), title: f.get('title').trim(), role, roles: role === 'staff' ? ['staff'] : ['staff', role], extraPermissions: [], approved: true, rejected: false, annualAllowance: Number(f.get('annualAllowance')), roadAllowance: Number(f.get('roadAllowance') || 2), usedLeave: 0, usedRoadLeave: 0, planningScore: Number(f.get('planningScore')), planningScoreNote: '', mustChangePassword: true };
+    const profile = { id: Date.now(), name: f.get('name').trim(), phone: normalizePhone(f.get('phone')), title: f.get('title').trim(), role, roles: role === 'staff' ? ['staff'] : ['staff', role], extraPermissions: [], approved: true, rejected: false, annualAllowance: Number(f.get('annualAllowance')), roadAllowance: Number(f.get('roadAllowance') || 2), usedLeave: 0, usedRoadLeave: 0, manualLeaveUsageByYear: {}, planningScore: Number(f.get('planningScore')), planningScoreNote: '', mustChangePassword: true };
     try {
       await window.FirebaseBridge.adminCreateUser(profile, f.get('password'));
       closeModal(); await refreshFromCloud(false); renderMembers(); toast('Firebase Authentication hesabı ve personel kaydı oluşturuldu.');
@@ -1337,14 +1396,17 @@ function newMemberModal() {
 function editMemberModal(userId) {
   if (!isAdmin() && !hasPermission('leave.manage')) return;
   const user = getUser(userId); if (!user) return;
+  const leaveYear = currentLeaveYear();
+  const manualUsage = getManualLeaveUsage(user, leaveYear);
   showModal(`${user.name} · Personel Bilgileri`, `<form id="editMemberForm" class="form-grid">
     <label>Ad soyad<input name="name" value="${escapeHtml(user.name)}" required></label>
     <label>Telefon<input name="phone" value="${escapeHtml(user.phone)}" readonly required><small class="form-note">Giriş kimliği olduğu için bu test sürümünde değiştirilemez.</small></label>
     <label>Görev / rütbe<input name="title" value="${escapeHtml(user.title || '')}" required></label>
     <label>Yıllık izin hakkı<input name="annualAllowance" type="number" min="0" value="${user.annualAllowance ?? 30}"></label>
     <label>Yol izni hakkı<input name="roadAllowance" type="number" min="0" value="${user.roadAllowance ?? 2}"></label>
-    <label>Kullanılmış yıllık izin (eski manuel bakiye)<input name="usedLeave" type="number" min="0" value="${user.usedLeave ?? 0}"></label>
-    <label>Kullanılmış yol izni (eski manuel bakiye)<input name="usedRoadLeave" type="number" min="0" value="${user.usedRoadLeave ?? 0}"></label>
+    <label>${leaveYear} kullanılmış yıllık izin (manuel)<input name="usedLeave" type="number" min="0" value="${manualUsage.annual}"></label>
+    <label>${leaveYear} kullanılmış yol izni (manuel)<input name="usedRoadLeave" type="number" min="0" value="${manualUsage.road}"></label>
+    <div class="span-2 form-hint">Bu manuel alanlar yalnızca ${leaveYear} yılı bakiyesini etkiler. Önceki yılların değerleri ve tarihli izin kayıtları geçmişte korunur.</div>
     <div class="span-2"><button class="btn btn-primary btn-block">Bilgileri Kaydet</button></div>
   </form>`);
   document.getElementById('editMemberForm').addEventListener('submit', e => {
@@ -1353,8 +1415,7 @@ function editMemberModal(userId) {
     user.title = f.get('title').trim();
     user.annualAllowance = Number(f.get('annualAllowance') || 30);
     user.roadAllowance = Number(f.get('roadAllowance') || 2);
-    user.usedLeave = Number(f.get('usedLeave') || 0);
-    user.usedRoadLeave = Number(f.get('usedRoadLeave') || 0);
+    setManualLeaveUsageForYear(user, leaveYear, f.get('usedLeave'), f.get('usedRoadLeave'));
     logAudit('personnel.update', `${user.name} personel bilgileri güncellendi`);
     saveDB(); closeModal(); renderMembers(); toast('Personel bilgileri güncellendi.');
   });
@@ -2050,23 +2111,25 @@ function rejectPayment(id) {
   saveDB(); renderFinanceManagement(); toast('Ödeme bildirimi reddedildi.');
 }
 
-function getRemainingLeave(user) {
-  return getLeaveBreakdown(user, false).annualRemaining;
+function getRemainingLeave(user, year = currentLeaveYear()) {
+  return getLeaveBreakdown(user, false, year).annualRemaining;
 }
 function monthTitle(year, month) { return new Intl.DateTimeFormat('tr-TR', { month: 'long', year: 'numeric' }).format(new Date(year, month, 1)); }
 function changeLeaveMonth(delta) { leaveCalendarCursor = new Date(leaveCalendarCursor.getFullYear(), leaveCalendarCursor.getMonth() + delta, 1); renderLeaveManagement(); }
 function goCurrentLeaveMonth() { leaveCalendarCursor = startOfMonth(new Date()); renderLeaveManagement(); }
 function renderMyLeaves() {
   const own = db.leaveRequests.filter(x => x.userId === currentUser.id).sort((a, b) => b.start.localeCompare(a.start));
-  const leaveBalance = getLeaveBreakdown(currentUser, false);
+  const leaveYear = currentLeaveYear();
+  const leaveBalance = getLeaveBreakdown(currentUser, false, leaveYear);
   document.getElementById('pageContent').innerHTML = `
     <div class="grid grid-4">
-      ${metric('📅', 'Toplam yıllık izin hakkı', getTotalLeaveEntitlement(currentUser) + ' gün', (currentUser.annualAllowance ?? 30) + ' yıllık + ' + (currentUser.roadAllowance ?? 2) + ' yol')}
-      ${metric('✅', 'Toplam kullanılan', leaveBalance.totalUsed + ' gün', 'Yol izni yıllık izin kaydından otomatik ayrılır')}
-      ${metric('⏳', 'Toplam kalan', leaveBalance.totalRemaining + ' gün', 'Yıllık ' + leaveBalance.annualRemaining + ' + yol ' + leaveBalance.roadRemaining)}
+      ${metric('📅', leaveYear + ' izin hakkı', getTotalLeaveEntitlement(currentUser) + ' gün', (currentUser.annualAllowance ?? 30) + ' yıllık + ' + (currentUser.roadAllowance ?? 2) + ' yol')}
+      ${metric('✅', leaveYear + ' kullanılan', leaveBalance.totalUsed + ' gün', 'Yol izni yıllık izin kaydından otomatik ayrılır')}
+      ${metric('⏳', leaveYear + ' kalan', leaveBalance.totalRemaining + ' gün', 'Yıllık ' + leaveBalance.annualRemaining + ' + yol ' + leaveBalance.roadRemaining)}
       ${metric('🛣️', 'Yol izni bakiyesi', leaveBalance.roadRemaining + ' / ' + (currentUser.roadAllowance ?? 2) + ' gün', 'Ayrı Yol İzni kaydı açılmaz')}
     </div>
-    <div class="card section-gap"><div class="card-header"><div><h3>İzinlerim</h3><p>İzin geçmişiniz ve talepleriniz</p></div>${!isCommander() ? '<button class="btn btn-primary btn-sm" onclick="leaveModal()">Yeni İzin Talebi</button>' : ''}</div>${own.length ? leaveTable(own, false) : '<div class="empty">Henüz izin kaydınız bulunmuyor.</div>'}</div>`;
+    <div class="management-banner section-gap"><strong>İzin hakkı her yıl yenilenir</strong><span>Kalan izin sonraki yıla devretmez. Her 1 Ocak’ta 30 gün yıllık + 2 gün yol hakkı yeniden başlar; eski izin kayıtları geçmişte saklanır.</span></div>
+    <div class="card section-gap"><div class="card-header"><div><h3>İzinlerim</h3><p>Tüm yıllara ait izin geçmişiniz ve talepleriniz</p></div>${!isCommander() ? '<button class="btn btn-primary btn-sm" onclick="leaveModal()">Yeni İzin Talebi</button>' : ''}</div>${own.length ? leaveTable(own, false) : '<div class="empty">Henüz izin kaydınız bulunmuyor.</div>'}</div>`;
 }
 function renderLeaveManagement() {
   if (!hasPermission('leave.view')) return goPage('dashboard');
@@ -2235,17 +2298,19 @@ function openCalendarDayLeaves(date) {
 function openPersonnelLeaves(userId) {
   if (!hasPermission('personnel.view') && !hasPermission('leave.view')) return;
   const user = getUser(userId); if (!user) return;
+  const leaveYear = currentLeaveYear();
   const records = db.leaveRequests.filter(x => x.userId === userId).sort((a, b) => b.start.localeCompare(a.start));
   const preference = db.leavePreferences.find(x => x.userId === userId && x.year === db.settings.leavePlanYear);
   showModal(`${user.name} · Personel ve İzin Bilgileri`, `
     <div class="grid grid-4 compact-metrics">
-      ${metric('📅', 'Toplam hak', getTotalLeaveEntitlement(user) + ' gün', (user.annualAllowance ?? 30) + ' yıllık + ' + (user.roadAllowance ?? 2) + ' yol')}
-      ${metric('⏳', 'Toplam kalan', getTotalLeaveRemaining(user) + ' gün', 'Kullanılmış günler düşülmüştür')}
-      ${metric('📅', 'Yıllık kalan', getRemainingLeave(user) + ' gün', '30 günlük temel bakiye')}
-      ${metric('🛣️', 'Yol izni kalan', getRoadRemaining(user) + ' gün', 'Yıllık izin kaydından otomatik düşer')}
+      ${metric('📅', leaveYear + ' toplam hak', getTotalLeaveEntitlement(user) + ' gün', (user.annualAllowance ?? 30) + ' yıllık + ' + (user.roadAllowance ?? 2) + ' yol')}
+      ${metric('⏳', leaveYear + ' toplam kalan', getTotalLeaveRemaining(user, leaveYear) + ' gün', 'Yalnızca bu yılın günleri düşülür')}
+      ${metric('📅', leaveYear + ' yıllık kalan', getRemainingLeave(user, leaveYear) + ' gün', '30 günlük temel bakiye')}
+      ${metric('🛣️', leaveYear + ' yol izni kalan', getRoadRemaining(user, leaveYear) + ' gün', 'Yıllık izin kaydından otomatik düşer')}
     </div>
     <div class="person-summary section-gap"><div><strong>Rol</strong><span>${escapeHtml(userRoleLabels(user))}</span></div>${hasPermission('leave.plan') ? `<div><strong>Planlama puanı</strong><span>${user.planningScore ?? 0}</span></div>` : ''}<div><strong>${db.settings.leavePlanYear} tercihi</strong><span>${preference ? 'Gönderildi' : 'Gönderilmedi'}</span></div></div>
     ${preference ? (()=>{const p=normalizePreferenceRecord(preference);return `<div class="preference-period-title section-gap"><strong>❄️ Kış dönemi · 10 gün</strong><span>Ocak–Mayıs ve Ekim–Aralık</span></div><div class="preference-summary"><div><strong>Kış 1. tercih</strong><span>${p.winterFirstStart?`${formatDate(p.winterFirstStart)} – ${formatDate(p.winterFirstEnd)}`:'—'}</span></div><div><strong>Kış 2. tercih</strong><span>${p.winterSecondStart?`${formatDate(p.winterSecondStart)} – ${formatDate(p.winterSecondEnd)}`:'—'}</span></div></div><div class="preference-period-title section-gap"><strong>☀️ Yaz dönemi · 20 gün</strong><span>Haziran–Eylül</span></div><div class="preference-summary"><div><strong>Yaz 1. tercih</strong><span>${p.summerFirstStart?`${formatDate(p.summerFirstStart)} – ${formatDate(p.summerFirstEnd)}`:'—'}</span></div><div><strong>Yaz 2. tercih</strong><span>${p.summerSecondStart?`${formatDate(p.summerSecondStart)} – ${formatDate(p.summerSecondEnd)}`:'—'}</span></div></div>`})() : ''}
+    <div class="management-banner section-gap"><strong>Yıllık yenileme kuralı</strong><span>Kalan hak devretmez; her 1 Ocak’ta 30 gün yıllık + 2 gün yol hakkı yeniden başlar. Aşağıdaki eski kayıtlar silinmez.</span></div>
     <div class="section-gap"><h3>Tüm izin kayıtları</h3>${records.length ? leaveTable(records, false, true) : '<div class="empty">Bu personele ait izin kaydı bulunmuyor.</div>'}</div>`);
 }
 function leaveModal(asManager = false, editId = null) {
@@ -2280,7 +2345,7 @@ function leaveModal(asManager = false, editId = null) {
     <div class="span-2 leave-date-help">Başlangıç tarihi ile gün sayısını yazdığınızda bitiş tarihi otomatik hesaplanır. Bitiş tarihini elle değiştirirseniz gün sayısı da otomatik güncellenir.</div>
 
     <label class="span-2">Açıklama<textarea name="note">${escapeHtml(editing?.note || '')}</textarea></label>
-    <div class="span-2 form-hint"><strong>Yıllık izin kuralı:</strong> Personelin 30 gün yıllık + 2 gün yol olmak üzere toplam 32 günlük hakkı vardır. Yıllık izin kaydında kalan yol izni önce otomatik kullanılır; ayrıca “Yol İzni” kaydı açılmaz.</div>
+    <div class="span-2 form-hint"><strong>Yıllık izin kuralı:</strong> Personelin her takvim yılında 30 gün yıllık + 2 gün yol olmak üzere toplam 32 günlük hakkı vardır. Kalan hak sonraki yıla devretmez ve her 1 Ocak’ta yeniden başlar. Eski izin kayıtları geçmişte saklanır.</div>
     ${asManager ? '<div class="span-2 form-hint">Admin/İdari İşler geçmiş aylarda kullanılmış izinleri buradan ekleyebilir. Kayıt onaylı olarak işlenir ve bakiyeyi otomatik etkiler.</div>' : ''}
     <div class="span-2"><button class="btn btn-primary btn-block">${editing ? 'Değişiklikleri Kaydet' : (asManager ? 'İzin Kaydını Ekle' : 'Talebi Gönder')}</button></div>
   </form>`);
@@ -2355,8 +2420,9 @@ function leaveModal(asManager = false, editId = null) {
 
     const payload = { type, city: f.get('city') || '-', start, end, days: enteredDays, note: f.get('note') };
     const targetUser = getUser(asManager ? Number(f.get('userId')) : (editing?.userId ?? currentUser.id));
-    if (type === 'Yıllık İzin' && !canFitAnnualLeaveEntitlement(targetUser, payload.days)) {
-      return toast(`${targetUser?.name || 'Personel'} için toplam yıllık izin hakkı (${getTotalLeaveEntitlement(targetUser)} gün) aşılamaz.`);
+    const exceededYear = type === 'Yıllık İzin' ? getExceededLeaveEntitlementYear(targetUser, start, end, editing?.id) : null;
+    if (exceededYear) {
+      return toast(`${targetUser?.name || 'Personel'} için ${exceededYear} yılı izin hakkı (${getTotalLeaveEntitlement(targetUser)} gün) aşılamaz.`);
     }
     if (editing) {
       Object.assign(editing, payload, { status: 'pending', updatedAt: new Date().toISOString() });
@@ -2393,8 +2459,9 @@ function approveLeave(id) {
   const x=db.leaveRequests.find(r=>r.id===id); if(!x)return;
   if(x.type==='Yıllık İzin'){
     const user = getUser(x.userId);
-    if (!canFitAnnualLeaveEntitlement(user, Number(x.days || daysBetween(x.start, x.end)), x.id)) {
-      return toast(`${user?.name || 'Personel'} için toplam yıllık izin hakkı (${getTotalLeaveEntitlement(user)} gün) aşılıyor.`);
+    const exceededYear = getExceededLeaveEntitlementYear(user, x.start, x.end, x.id);
+    if (exceededYear) {
+      return toast(`${user?.name || 'Personel'} için ${exceededYear} yılı izin hakkı (${getTotalLeaveEntitlement(user)} gün) aşılıyor.`);
     }
     const capacity=concurrentLeaveCapacity();
     const blocked=dateRange(x.start,x.end).find(date=>{
@@ -2845,18 +2912,21 @@ function reportHtml(type) {
     return `${head('Borç ve Tahsilat Raporu')}<table><thead><tr><th>Personel</th><th>Dönem</th><th>Borç</th><th>Ödenen</th><th>Kalan</th></tr></thead><tbody>${rows||'<tr><td colspan="5">Kayıt yok.</td></tr>'}</tbody></table>`;
   }
   if (type === 'leave') {
+    const leaveYear = currentLeaveYear();
     const summaryRows = approvedUsers().map(u => {
-      const b = getLeaveBreakdown(u, false);
+      const b = getLeaveBreakdown(u, false, leaveYear);
       return `<tr><td>${escapeHtml(u.name)}</td><td>${getTotalLeaveEntitlement(u)}</td><td>${b.totalUsed}</td><td>${b.totalRemaining}</td><td>${u.annualAllowance??30}</td><td>${b.annualRemaining}</td><td>${u.roadAllowance??2}</td><td>${b.roadRemaining}</td></tr>`;
     }).join('');
     const usedRows = [];
     approvedUsers().forEach(u => {
       getUsedLeaveRanges(u.id, 'Yıllık İzin').forEach(x => usedRows.push(`<tr><td>${escapeHtml(u.name)}</td><td>Yıllık İzin</td><td>${formatShortDate(x.start)} – ${formatShortDate(x.usedEnd)}</td><td>${x.usedDays}</td></tr>`));
       getUsedLeaveRanges(u.id, 'Yol İzni').forEach(x => usedRows.push(`<tr><td>${escapeHtml(u.name)}</td><td>Yol İzni</td><td>${formatShortDate(x.start)} – ${formatShortDate(x.usedEnd)}</td><td>${x.usedDays}</td></tr>`));
-      if (Number(u.usedLeave || 0)) usedRows.push(`<tr><td>${escapeHtml(u.name)}</td><td>Yıllık İzin</td><td>Eski manuel kayıt · tarih girilmemiş</td><td>${Number(u.usedLeave)}</td></tr>`);
-      if (Number(u.usedRoadLeave || 0)) usedRows.push(`<tr><td>${escapeHtml(u.name)}</td><td>Yol İzni</td><td>Eski manuel kayıt · tarih girilmemiş</td><td>${Number(u.usedRoadLeave)}</td></tr>`);
+      Object.entries(normalizeManualLeaveUsageByYear(u.manualLeaveUsageByYear)).sort(([a], [b]) => Number(a) - Number(b)).forEach(([year, usage]) => {
+        if (usage.annual) usedRows.push(`<tr><td>${escapeHtml(u.name)}</td><td>Yıllık İzin</td><td>${year} manuel kayıt · tarih girilmemiş</td><td>${usage.annual}</td></tr>`);
+        if (usage.road) usedRows.push(`<tr><td>${escapeHtml(u.name)}</td><td>Yol İzni</td><td>${year} manuel kayıt · tarih girilmemiş</td><td>${usage.road}</td></tr>`);
+      });
     });
-    return `${head('Yıllık İzin Raporu')}<p class="report-note">Toplam hak 30 gün yıllık + 2 gün yol = 32 gündür. Yeni yıllık izin kayıtlarında kalan yol izni ayrıca kayıt açılmadan otomatik kullanılır. Onaylanan gelecek izinler hemen kullanılmış izne düşmez; izin başlangıcının ertesi günü ilk tamamlanan gün kullanılmış sayılır.</p><h3>İzin Bakiyeleri</h3><table><thead><tr><th>Personel</th><th>Toplam Hak</th><th>Toplam Kullanılan</th><th>Toplam Kalan</th><th>Yıllık Hak</th><th>Yıllık Kalan</th><th>Yol Hak</th><th>Yol Kalan</th></tr></thead><tbody>${summaryRows}</tbody></table><h3>Kullanılan İzin Tarihleri</h3><table><thead><tr><th>Personel</th><th>İzin Türü</th><th>Kullanılan Tarih Aralığı</th><th>Gün</th></tr></thead><tbody>${usedRows.join('') || '<tr><td colspan="4">Henüz kullanılmış izin kaydı bulunmuyor.</td></tr>'}</tbody></table>`;
+    return `${head(`${leaveYear} Yıllık İzin Raporu`)}<p class="report-note">İzin bakiyesi ${leaveYear} takvim yılına aittir. Toplam hak her 1 Ocak’ta 30 gün yıllık + 2 gün yol = 32 gün olarak yeniden başlar; kullanılmayan hak sonraki yıla devretmez. Eski yılların izin kayıtları aşağıdaki geçmiş listesinde korunur. Onaylanan gelecek izinler hemen kullanılmış izne düşmez; izin başlangıcının ertesi günü ilk tamamlanan gün kullanılmış sayılır.</p><h3>${leaveYear} İzin Bakiyeleri</h3><table><thead><tr><th>Personel</th><th>Toplam Hak</th><th>Toplam Kullanılan</th><th>Toplam Kalan</th><th>Yıllık Hak</th><th>Yıllık Kalan</th><th>Yol Hak</th><th>Yol Kalan</th></tr></thead><tbody>${summaryRows}</tbody></table><h3>Tüm Yılların Kullanılan İzin Tarihleri</h3><table><thead><tr><th>Personel</th><th>İzin Türü</th><th>Kullanılan Tarih Aralığı</th><th>Gün</th></tr></thead><tbody>${usedRows.join('') || '<tr><td colspan="4">Henüz kullanılmış izin kaydı bulunmuyor.</td></tr>'}</tbody></table>`;
   }
   if (type === 'planning') {
     const year=db.settings.leavePlanYear;
@@ -2894,7 +2964,7 @@ function printReportPreview(type) {
 function downloadCsv(title) {
   let csv = 'Rapor;Tarih;Değer\n';
   if (title.includes('Borç')) csv += db.debts.map(d=>`${getUser(d.userId)?.name||'-'};${d.period};${d.amount-d.paid}`).join('\n');
-  else if (title.includes('İzin')) csv += approvedUsers().map(u=>`${u.name};${toISO(new Date())};${getRemainingLeave(u)} gün kalan`).join('\n');
+  else if (title.includes('İzin')) csv += approvedUsers().map(u=>`${u.name};${currentLeaveYear()};${getRemainingLeave(u)} gün yıllık izin kalan`).join('\n');
   else csv += `${title};${toISO(new Date())};PBYS raporu`;
   const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = title.replaceAll(' ', '_') + '.csv'; a.click(); URL.revokeObjectURL(a.href); toast('Rapor indirildi.');
 }
